@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hospital Operations Center (Person A)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2d3436;
+            --accent: #0984e3;
+            --bg: #f5f7fa;
+            --card: #ffffff;
+        }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); margin: 0; padding: 20px; color: var(--primary); }
+        
+        /* Container */
+        .dashboard { max-width: 1200px; margin: 0 auto; }
+        
+        /* Header */
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { font-size: 22px; font-weight: 700; margin: 0; }
+        .subtitle { font-size: 14px; color: #636e72; }
+
+        /* Panels */
+        .panel { background: var(--card); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 20px; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .panel-title { font-weight: 600; font-size: 16px; }
+
+        /* Controls */
+        .btn-group { display: flex; gap: 8px; background: #f1f2f6; padding: 4px; border-radius: 8px; }
+        .btn { border: none; background: transparent; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 13px; color: #636e72; transition: all 0.2s; }
+        .btn:hover { background: #dfe6e9; }
+        .btn.active { background: white; color: var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn-reset { color: #d63031; background: rgba(214, 48, 49, 0.1); }
+        .btn-reset:hover { background: rgba(214, 48, 49, 0.2); }
+
+        /* Tooltip */
+        .chart-tooltip {
+            position: absolute; background: rgba(255, 255, 255, 0.95);
+            padding: 10px; border-radius: 6px; border: 1px solid #ddd;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 12px;
+            pointer-events: none; opacity: 0; transition: opacity 0.1s; z-index: 1000;
+        }
+            .legend-group text { font-family: 'Inter', sans-serif; font-size: 10px; fill: #636e72; }
+        
+        /* Filter Badge */
+        #active-filters {
+            font-size: 12px; font-weight: 600; color: white; background: var(--accent);
+            padding: 4px 10px; border-radius: 20px; opacity: 0; transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <div>
+                <h1>Hospital Risk Explorer</h1>
+                <span class="subtitle">Task 1: Identify Capacity & Wellbeing Bottlenecks</span>
+            </div>
+            <div id="active-filters"></div>
+            <button class="btn btn-reset" onclick="window.resetState()">Reset All Filters</button>
+        </header>
+
+        <!-- CALENDAR -->
+        <div class="panel" id="view-calendar">
+            <div class="panel-header">
+                <span class="panel-title">1. Annual Risk Overview (Calendar)</span>
+                <div class="btn-group" id="metric-controls">
+                    <button class="btn active" onclick="setMetric('refusals')">Patient Refusals</button>
+                    <button class="btn" onclick="setMetric('morale')">Staff Morale</button>
+                    <button class="btn" onclick="setMetric('occupancy')">Occupancy %</button>
+                </div>
+            </div>
+            <!-- SVG Injected Here -->
+        </div>
+
+        <!-- TIME SERIES -->
+        <div class="panel" id="view-timeseries">
+            <div class="panel-header">
+                <span class="panel-title">2. Detail Analysis & Controller</span>
+                <span style="font-size:12px; color:#888;">
+                    <strong>Scroll</strong> to Zoom • <strong>Drag</strong> to Brush • <strong>Click Dots</strong> to Filter Events
+                </span>
+            </div>
+            <!-- SVG Injected Here -->
+        </div>
+    </div>
+
+    <!-- Tooltip Element -->
+    <div class="chart-tooltip"></div>
+
+    <script type="module" src="./main.js"></script>
+    <script>
+        function setMetric(m) {
+            document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            window.dispatch({ type: "SET_METRIC", value: m });
+        }
+    </script>
+</body>
+</html>
