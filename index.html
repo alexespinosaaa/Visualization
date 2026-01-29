@@ -1,3 +1,4 @@
+<!-- index.html (responsive panels + correct IDs for main.js) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -100,11 +101,7 @@
     }
 
     /* ---------------------------
-       GRID (Munzner flow)
-       Row 1: Calendar (anchor)
-       Row 2: Time series + Event impact (paired analysis)
-       Row 3: Scatterplot
-       Row 4: PCP
+       GRID (Option A)
        --------------------------- */
     .grid{
       display:grid;
@@ -136,6 +133,10 @@
       padding: var(--pad);
       position: relative;
       overflow: hidden;
+
+      /* KEY: make panel a column-flex so charts can fill */
+      display: flex;
+      flex-direction: column;
     }
 
     .panel-header{
@@ -146,6 +147,7 @@
       margin-bottom: 8px;
       padding-bottom: 8px;
       border-bottom: 1px solid rgba(229,231,235,0.9);
+      flex: 0 0 auto;
     }
 
     .panel-header-left{
@@ -206,7 +208,7 @@
       border: 1px solid rgba(17,24,39,0.08);
     }
 
-    /* Selection summary row under calendar */
+    /* Selection summary under calendar */
     .summary-row{
       display:flex;
       align-items:center;
@@ -215,6 +217,7 @@
       margin-top: 8px;
       padding-top: 8px;
       border-top: 1px dashed rgba(229,231,235,0.95);
+      flex: 0 0 auto;
     }
     .summary-left{
       font-size: 12px;
@@ -225,15 +228,40 @@
       gap: 8px;
       line-height: 1.15rem;
     }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(229,231,235,0.95);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 1px 4px rgba(17,24,39,0.05);
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .summary-pill .k{
+      color: var(--muted);
+      font-weight: 900;
+    }
 
-    /* Sensible working heights */
+    /* Systematic sizing: give panels enough height; views will auto-fill */
     #view-calendar{ min-height: 280px; }
-    #view-timeseries{ min-height: 360px; }
-    #view-events{ min-height: 360px; }
-    #view-scatterplot{ min-height: 520px; }
-    #view-pcp{ min-height: 520px; }
+    #view-timeseries{ min-height: 420px; }
+    #view-events{ min-height: 420px; }
+    #view-scatterplot{ min-height: 560px; }
+    #view-pcp{ min-height: 560px; }
 
-    /* Tooltip holder used by some views */
+    /* Let any svg inside panel expand */
+    .panel svg{
+      width: 100%;
+      height: 100%;
+      display: block;
+      flex: 1 1 auto;
+      min-height: 0; /* important for flex overflow */
+    }
+
     .chart-tooltip{
       position: absolute;
       background: rgba(255,255,255,0.97);
@@ -267,8 +295,7 @@
           "pcp";
       }
       #view-calendar{ min-height: 260px; }
-      #view-timeseries, #view-events{ min-height: 330px; }
-      #view-scatterplot, #view-pcp{ min-height: 520px; }
+      #view-timeseries, #view-events{ min-height: 380px; }
     }
   </style>
 </head>
@@ -280,7 +307,7 @@
     <header>
       <div class="header-left">
         <h1>Hospital Risk Explorer</h1>
-        <div class="subtitle">Capacity, wellbeing & event impact — interactive operations dashboard</div>
+        <div class="subtitle">Capacity, wellbeing &amp; event impact — interactive operations dashboard</div>
       </div>
 
       <div class="header-right">
@@ -298,8 +325,6 @@
             <div class="panel-title">1. Annual Risk Overview</div>
             <div class="panel-subtitle">Central context: click week to drive all views</div>
           </div>
-
-          <!-- IMPORTANT: these values must match main.js/state mapping -->
           <div class="btn-group" id="metric-controls">
             <button class="btn active" onclick="setMetric('refusals')">Refusals</button>
             <button class="btn" onclick="setMetric('morale')">Morale</button>
@@ -309,15 +334,12 @@
         </div>
 
         <!-- SVG injected by view-calendar.js -->
-
         <div class="summary-row" id="selection-summary" aria-hidden="true">
-          <div class="summary-left" id="summary-left">
-            <!-- optional; can be filled by JS later -->
-          </div>
+          <div class="summary-left" id="summary-left"></div>
         </div>
       </div>
 
-      <!-- TASK 2: TIMESERIES -->
+      <!-- TASK 1: TIMESERIES -->
       <div class="panel" id="view-timeseries">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -329,7 +351,7 @@
         <!-- SVG injected by view-timeseries.js -->
       </div>
 
-      <!-- TASK 2b: EVENT IMPACT -->
+      <!-- TASK 2: EVENT IMPACT -->
       <div class="panel" id="view-events">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -343,44 +365,30 @@
 
       <!-- TASK 3: SCATTERPLOT -->
       <div class="panel" id="view-scatterplot">
-        <div class="panel-header">
-          <div class="panel-header-left">
-            <div class="panel-title">4. Scatterplot Explorer</div>
-            <div class="panel-subtitle">Staff presence vs morale (linked brushing)</div>
-          </div>
-          <div class="hint"><strong>Drag</strong> select • <strong>Hover</strong> details</div>
-        </div>
-        <!-- Content injected by view-scatterplot-linked.js -->
+        <!-- view-scatterplot-linked.js renders its own controls inside -->
       </div>
 
       <!-- TASK 5: PCP -->
       <div class="panel" id="view-pcp">
-        <div class="panel-header">
-          <div class="panel-header-left">
-            <div class="panel-title">5. Parallel Coordinate Plot</div>
-            <div class="panel-subtitle">Multivariate patterns across 5 dimensions</div>
-          </div>
-          <div class="hint"><strong>Drag</strong> on axis to filter • <strong>Hover</strong> tooltip</div>
-        </div>
-        <!-- Content injected by view-pcp.js -->
+        <!-- view-pcp.js renders its own controls inside -->
       </div>
 
     </div>
   </div>
 
-  <!-- tooltip container used by some of your legacy views -->
   <div class="chart-tooltip"></div>
 
-  <!-- Load app -->
   <script type="module" src="./main.js"></script>
 
-  <!-- Metric control helper -->
   <script>
     function setMetric(m) {
       document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
       event.target.classList.add('active');
       window.dispatch({ type: "SET_METRIC", value: m });
     }
+
+    // (Optional) If you later re-enable chips/summary watchers, keep them here.
+    // Your current working version may already populate #summary-left elsewhere.
   </script>
 </body>
 </html>
