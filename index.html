@@ -103,8 +103,8 @@
        GRID (Munzner flow)
        Row 1: Calendar (anchor)
        Row 2: Time series + Event impact (paired analysis)
-       Row 3: Bench (enclosed explanation station)
-       Row 4: Table (details-on-demand)
+       Row 3: Scatterplot
+       Row 4: PCP
        --------------------------- */
     .grid{
       display:grid;
@@ -126,7 +126,7 @@
     #view-pcp{ grid-area: pcp; }
 
     /* ---------------------------
-       PANELS (tight padding, less chrome)
+       PANELS
        --------------------------- */
     .panel{
       background: var(--card);
@@ -206,7 +206,7 @@
       border: 1px solid rgba(17,24,39,0.08);
     }
 
-    /* ---- Selection summary row (small, under calendar header) ---- */
+    /* Selection summary row under calendar */
     .summary-row{
       display:flex;
       align-items:center;
@@ -225,64 +225,15 @@
       gap: 8px;
       line-height: 1.15rem;
     }
-    .summary-pill{
-      display:inline-flex;
-      align-items:center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(229,231,235,0.95);
-      background: #fff;
-      color: var(--ink);
-      box-shadow: 0 1px 4px rgba(17,24,39,0.05);
-      font-weight: 800;
-      font-size: 12px;
-    }
-    .summary-pill .k{
-      color: var(--muted);
-      font-weight: 900;
-    }
 
     /* Sensible working heights */
     #view-calendar{ min-height: 280px; }
     #view-timeseries{ min-height: 360px; }
     #view-events{ min-height: 360px; }
-    #view-staffbench{ min-height: 520px; }
-    #view-table{ min-height: 240px; }
+    #view-scatterplot{ min-height: 520px; }
+    #view-pcp{ min-height: 520px; }
 
-    /* Staff bench: enclosed station + light subpanels */
-    .stack{
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-    }
-
-    .subpanel{
-      border: 1px solid rgba(229,231,235,0.70);
-      border-radius: 12px;
-      padding: 10px 10px 8px 10px;
-      background: #ffffff;
-    }
-
-    .subpanel-title{
-      font-size: 12px;
-      font-weight: 900;
-      margin: 0 0 4px 0;
-      color: var(--ink);
-      letter-spacing: -0.01em;
-    }
-
-    .subpanel-hint{
-      font-size: 12px;
-      color: var(--muted);
-      margin: 0 0 6px 0;
-    }
-
-    #view-staffing, #view-scatter{
-      width: 100%;
-      min-height: 220px;
-    }
-
+    /* Tooltip holder used by some views */
     .chart-tooltip{
       position: absolute;
       background: rgba(255,255,255,0.97);
@@ -317,6 +268,7 @@
       }
       #view-calendar{ min-height: 260px; }
       #view-timeseries, #view-events{ min-height: 330px; }
+      #view-scatterplot, #view-pcp{ min-height: 520px; }
     }
   </style>
 </head>
@@ -346,6 +298,8 @@
             <div class="panel-title">1. Annual Risk Overview</div>
             <div class="panel-subtitle">Central context: click week to drive all views</div>
           </div>
+
+          <!-- IMPORTANT: these values must match main.js/state mapping -->
           <div class="btn-group" id="metric-controls">
             <button class="btn active" onclick="setMetric('refusals')">Refusals</button>
             <button class="btn" onclick="setMetric('morale')">Morale</button>
@@ -356,15 +310,14 @@
 
         <!-- SVG injected by view-calendar.js -->
 
-        <!-- small selection summary (high signal, low chrome) -->
         <div class="summary-row" id="selection-summary" aria-hidden="true">
           <div class="summary-left" id="summary-left">
-            <!-- filled by JS -->
+            <!-- optional; can be filled by JS later -->
           </div>
         </div>
       </div>
 
-      <!-- TIMESERIES (paired analysis) -->
+      <!-- TASK 2: TIMESERIES -->
       <div class="panel" id="view-timeseries">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -373,9 +326,10 @@
           </div>
           <div class="hint"><strong>Scroll</strong> zoom • <strong>Drag</strong> brush • <strong>Click</strong> select</div>
         </div>
+        <!-- SVG injected by view-timeseries.js -->
       </div>
 
-      <!-- EVENT IMPACT (paired analysis) -->
+      <!-- TASK 2b: EVENT IMPACT -->
       <div class="panel" id="view-events">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -384,189 +338,49 @@
           </div>
           <div class="hint"><strong>Click</strong> event filter • <strong>Alt-click</strong> clear</div>
         </div>
+        <!-- SVG injected by view-event-impact.js -->
       </div>
 
-      <!-- BENCH (enclosed explanation station) -->
-      <div class="panel" id="view-staffbench">
+      <!-- TASK 3: SCATTERPLOT -->
+      <div class="panel" id="view-scatterplot">
         <div class="panel-header">
           <div class="panel-header-left">
             <div class="panel-title">4. Scatterplot Explorer</div>
-            <div class="panel-subtitle">Staff Composition vs Performance</div>
+            <div class="panel-subtitle">Staff presence vs morale (linked brushing)</div>
           </div>
-          <div class="hint"><strong>Drag</strong> to select points • <strong>Hover</strong> for details</div>
+          <div class="hint"><strong>Drag</strong> select • <strong>Hover</strong> details</div>
         </div>
+        <!-- Content injected by view-scatterplot-linked.js -->
       </div>
 
-      <!-- TABLE (details-on-demand) -->
-      <div class="panel" id="view-table">
+      <!-- TASK 5: PCP -->
+      <div class="panel" id="view-pcp">
         <div class="panel-header">
           <div class="panel-header-left">
             <div class="panel-title">5. Parallel Coordinate Plot</div>
-            <div class="panel-subtitle">Multivariate Analysis across 5 dimensions</div>
+            <div class="panel-subtitle">Multivariate patterns across 5 dimensions</div>
           </div>
-          <div class="hint"><strong>Drag</strong> on axis to filter • <strong>Hover</strong> for tooltip</div>
+          <div class="hint"><strong>Drag</strong> on axis to filter • <strong>Hover</strong> tooltip</div>
         </div>
+        <!-- Content injected by view-pcp.js -->
       </div>
 
     </div>
-
   </div>
 
+  <!-- tooltip container used by some of your legacy views -->
   <div class="chart-tooltip"></div>
 
+  <!-- Load app -->
   <script type="module" src="./main.js"></script>
 
+  <!-- Metric control helper -->
   <script>
     function setMetric(m) {
       document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
       event.target.classList.add('active');
       window.dispatch({ type: "SET_METRIC", value: m });
     }
-
-    // Active filter chips (global state display)
-    function renderChips(s) {
-      const el = document.getElementById("active-filters");
-      if (!el) return;
-
-      const chips = [];
-
-      if (s?.timeRange && Array.isArray(s.timeRange) && s.timeRange.length === 2) {
-        chips.push({
-          label: "Weeks",
-          value: `${s.timeRange[0]}–${s.timeRange[1]}`,
-          clear: () => window.dispatch({ type: "SET_TIME_RANGE", value: null })
-        });
-      }
-
-      if (s?.selectedWeek !== null && s?.selectedWeek !== undefined) {
-        chips.push({
-          label: "Week",
-          value: `W${s.selectedWeek}`,
-          clear: () => window.dispatch({ type: "SET_SELECTED_WEEK", value: s.selectedWeek })
-        });
-      }
-
-      if (s?.selectedEventType) {
-        chips.push({
-          label: "Event",
-          value: String(s.selectedEventType).toUpperCase(),
-          clear: () => window.dispatch({ type: "SET_SELECTED_EVENT_TYPE", value: s.selectedEventType })
-        });
-      }
-
-      if (s?.selectedService) {
-        chips.push({
-          label: "Service",
-          value: String(s.selectedService).replaceAll("_"," ").toUpperCase(),
-          clear: () => window.dispatch({ type: "SET_SELECTED_SERVICE", value: s.selectedService })
-        });
-      }
-
-      if (s?.metric) {
-        chips.push({
-          label: "Metric",
-          value: String(s.metric).toUpperCase(),
-          clear: null
-        });
-      }
-
-      el.innerHTML = "";
-      chips.forEach(c => {
-        const chip = document.createElement("div");
-        chip.className = "chip";
-
-        const label = document.createElement("span");
-        label.className = "label";
-        label.textContent = c.label;
-
-        const value = document.createElement("span");
-        value.textContent = c.value;
-
-        chip.appendChild(label);
-        chip.appendChild(value);
-
-        if (c.clear) {
-          const x = document.createElement("button");
-          x.type = "button";
-          x.textContent = "×";
-          x.title = "Clear filter";
-          x.onclick = c.clear;
-          chip.appendChild(x);
-        }
-
-        el.appendChild(chip);
-      });
-    }
-
-    // Small selection summary under calendar (high signal, low noise)
-    function renderSummary(s) {
-      const wrap = document.getElementById("selection-summary");
-      const left = document.getElementById("summary-left");
-      if (!wrap || !left) return;
-
-      const pills = [];
-
-      const metric = (s?.metric) ? String(s.metric) : "refusals";
-      pills.push({ k: "Metric", v: metric.toUpperCase() });
-
-      if (s?.timeRange && Array.isArray(s.timeRange) && s.timeRange.length === 2) {
-        pills.push({ k: "Window", v: `W${s.timeRange[0]}–W${s.timeRange[1]}` });
-      } else {
-        pills.push({ k: "Window", v: "Full year" });
-      }
-
-      if (s?.selectedWeek !== null && s?.selectedWeek !== undefined) {
-        pills.push({ k: "Selected", v: `W${s.selectedWeek}` });
-      } else {
-        pills.push({ k: "Selected", v: "—" });
-      }
-
-      if (s?.selectedEventType) pills.push({ k: "Event", v: String(s.selectedEventType).toUpperCase() });
-      if (s?.selectedService) pills.push({ k: "Service", v: String(s.selectedService).replaceAll("_"," ").toUpperCase() });
-
-      left.innerHTML = "";
-      pills.forEach(p => {
-        const pill = document.createElement("span");
-        pill.className = "summary-pill";
-
-        const k = document.createElement("span");
-        k.className = "k";
-        k.textContent = p.k + ":";
-
-        const v = document.createElement("span");
-        v.textContent = p.v;
-
-        pill.appendChild(k);
-        pill.appendChild(v);
-        left.appendChild(pill);
-      });
-
-      wrap.setAttribute("aria-hidden", pills.length ? "false" : "true");
-    }
-
-    // Lightweight state watcher:
-    // Best practice is: set `window.__dashState = state;` inside main.js updateAllViews().
-    (function(){
-      let last = "";
-      setInterval(() => {
-        const s = window.__dashState || window.state;
-        if (!s) return;
-
-        const snap = JSON.stringify({
-          selectedWeek: s.selectedWeek,
-          timeRange: s.timeRange,
-          selectedEventType: s.selectedEventType,
-          selectedService: s.selectedService,
-          metric: s.metric
-        });
-
-        if (snap !== last) {
-          last = snap;
-          renderChips(s);
-          renderSummary(s);
-        }
-      }, 180);
-    })();
   </script>
 </body>
 </html>
