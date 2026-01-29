@@ -1,12 +1,15 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
+
 export function init(container, data, state, dispatch) {
   const el = d3.select(container);
   el.selectAll("*").remove();
 
+
   const margin = { top: 40, right: 60, bottom: 40, left: 60 };
   const width = 1100 - margin.left - margin.right;
   const height = 300 - margin.top - margin.bottom;
+
 
   const svg = el.append("svg")
     .attr("width", "100%")
@@ -14,18 +17,23 @@ export function init(container, data, state, dispatch) {
     .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
     .style("overflow", "visible");
 
+
   svg.append("defs").append("clipPath").attr("id", "timeline-clip")
     .append("rect").attr("width", width).attr("height", height);
 
+
   const mainGroup = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
 
   const x = d3.scaleLinear().domain([1, 52]).range([0, width]);
   const yLeft = d3.scaleLinear().range([height, 0]);
   const yRight = d3.scaleLinear().domain([40, 100]).range([height, 0]);
 
+
   const xAxisGroup = mainGroup.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
   const yAxisLeftGroup = mainGroup.append("g").attr("class", "y-axis-l");
   const yAxisRightGroup = mainGroup.append("g").attr("class", "y-axis-r").attr("transform", `translate(${width},0)`);
+
 
   svg.append("text")
     .attr("x", margin.left)
@@ -35,6 +43,7 @@ export function init(container, data, state, dispatch) {
     .style("font-size", "12px")
     .text("← Patient Refusals");
 
+
   svg.append("text")
     .attr("x", width + margin.left)
     .attr("y", 20)
@@ -43,6 +52,7 @@ export function init(container, data, state, dispatch) {
     .style("text-anchor", "end")
     .text("Staff Morale →");
 
+
   const chartArea = mainGroup.append("g").attr("clip-path", "url(#timeline-clip)");
   const pathRefusals = chartArea.append("path")
     .attr("fill", "#e74c3c")
@@ -50,12 +60,15 @@ export function init(container, data, state, dispatch) {
     .attr("stroke", "#e74c3c")
     .attr("stroke-width", 2);
 
+
   const pathMorale = chartArea.append("path")
     .attr("fill", "none")
     .attr("stroke", "#00b894")
     .attr("stroke-width", 3);
 
+
   const dotsMorale = chartArea.append("g").attr("class", "semantic-dots");
+
 
   const selectionLine = chartArea.append("line")
     .attr("stroke", "#2d3436")
@@ -64,9 +77,12 @@ export function init(container, data, state, dispatch) {
     .style("opacity", 0)
     .style("pointer-events", "none");
 
+
   const brushGroup = chartArea.append("g").attr("class", "brush");
 
+
   const eventGroup = chartArea.append("g").attr("class", "events");
+
 
   const brush = d3.brushX().extent([[0, 0], [width, height]])
     .on("end", (event) => {
@@ -84,7 +100,9 @@ export function init(container, data, state, dispatch) {
       }
     });
 
+
   brushGroup.call(brush);
+
 
   brushGroup.select(".overlay")
     .on("click", (event) => {
@@ -95,6 +113,7 @@ export function init(container, data, state, dispatch) {
       if (week >= 1 && week <= 52) dispatch({ type: "SET_SELECTED_WEEK", value: week });
     });
 
+
   const zoom = d3.zoom()
     .scaleExtent([1, 8])
     .translateExtent([[0, 0], [width, height]])
@@ -103,9 +122,12 @@ export function init(container, data, state, dispatch) {
       if (event.sourceEvent) dispatch({ type: "SET_ZOOM", value: event.transform });
     });
 
+
   svg.call(zoom);
 
+
   const legend = svg.append("g").attr("transform", `translate(10, ${height + 35})`);
+
 
   const drawLegendItem = (id, color, label, type, xPos) => {
     const g = legend.append("g")
@@ -113,16 +135,20 @@ export function init(container, data, state, dispatch) {
       .style("cursor", "pointer")
       .on("click", () => dispatch({ type: "SET_SELECTED_EVENT_TYPE", value: state.selectedEventType === id ? null : id }));
 
+
     if (type === "diamond") g.append("path").attr("d", d3.symbol().type(d3.symbolDiamond).size(100)).attr("fill", color).attr("stroke", "#333");
     else if (type === "square") g.append("rect").attr("width", 10).attr("height", 10).attr("x", -5).attr("y", -5).attr("fill", color).attr("stroke", "#333");
     else g.append("circle").attr("r", 6).attr("fill", color).attr("stroke", "#333");
 
+
     g.append("text").attr("x", 12).attr("y", 4).text(label).style("font-size", "12px").style("fill", "#444");
   };
+
 
   drawLegendItem("flu", "#9b59b6", "Flu (Filter)", "circle", 0);
   drawLegendItem("strike", "#e67e22", "Strike (Filter)", "diamond", 100);
   drawLegendItem("donation", "#3498db", "Donation (Filter)", "square", 220);
+
 
   container.refs = {
     svg, x, yLeft, yRight,
@@ -131,9 +157,10 @@ export function init(container, data, state, dispatch) {
     eventGroup, dotsMorale,
     selectionLine,
     tooltip: d3.select("body").select(".chart-tooltip"),
-    zoom, brushGroup
+    zoom, brushGroup, brush
   };
 }
+
 
 export function update(container, data, state, dispatch) {
   const {
@@ -142,20 +169,26 @@ export function update(container, data, state, dispatch) {
     pathRefusals, pathMorale,
     eventGroup, dotsMorale,
     tooltip,
-    selectionLine
+    selectionLine,
+    brushGroup, brush
   } = container.refs;
+
 
   const dataset = data.hospitalWeekly || [];
   if (!dataset.length) return;
 
+
   const transform = state.zoomTransform || d3.zoomIdentity;
   const newX = transform.rescaleX(x);
 
+
   yLeft.domain([0, d3.max(dataset, d => +d.refusals) * 1.1]);
+
 
   xAxisGroup.call(d3.axisBottom(newX).ticks(10).tickFormat(d => `W${d}`));
   yAxisLeftGroup.transition().call(d3.axisLeft(yLeft).ticks(5));
   yAxisRightGroup.transition().call(d3.axisRight(yRight).ticks(5));
+
 
   const area = d3.area()
     .x(d => newX(d.week))
@@ -163,13 +196,16 @@ export function update(container, data, state, dispatch) {
     .y1(d => yLeft(d.refusals))
     .curve(d3.curveMonotoneX);
 
+
   const line = d3.line()
     .x(d => newX(d.week))
     .y(d => yRight(d.morale))
     .curve(d3.curveMonotoneX);
 
+
   pathRefusals.datum(dataset).attr("d", area);
   pathMorale.datum(dataset).attr("d", line);
+
 
   if (state.selectedWeek) {
     const chartHeight = yLeft.range()[0];
@@ -183,7 +219,20 @@ export function update(container, data, state, dispatch) {
     selectionLine.style("opacity", 0);
   }
 
+
+  // 🔧 FIX: Update brush UI when timeRange changes externally
+  if (state.timeRange && state.timeRange.length === 2) {
+    const [w1, w2] = state.timeRange;
+    const x0 = newX(w1);
+    const x1 = newX(w2);
+    brushGroup.call(brush.move, [x0, x1]);
+  } else {
+    brushGroup.call(brush.move, null);
+  }
+
+
   const events = dataset.filter(d => d.eventType && d.eventType !== "none");
+
 
   eventGroup.selectAll(".event-icon")
     .data(events, d => d.week)
@@ -209,10 +258,12 @@ export function update(container, data, state, dispatch) {
       const g = d3.select(this);
       g.selectAll("*").remove();
 
+
       let color = "#95a5a6";
       if (d.eventType === "flu") color = "#9b59b6";
       if (d.eventType === "strike") color = "#e67e22";
       if (d.eventType === "donation") color = "#3498db";
+
 
       if (d.eventType === "strike") {
         g.append("path").attr("d", d3.symbol().type(d3.symbolDiamond).size(150)).attr("fill", color).attr("stroke", "white").attr("stroke-width", 1);
@@ -222,6 +273,7 @@ export function update(container, data, state, dispatch) {
         g.append("circle").attr("r", 7).attr("fill", color).attr("stroke", "white").attr("stroke-width", 1);
       }
     });
+
 
   if (transform.k > 2) {
     dotsMorale.selectAll("circle").data(dataset, d => d.week).join("circle")

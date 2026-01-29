@@ -14,9 +14,13 @@
  * - Line color: Service type (Emergency, ICU, Surgery, General_Medicine)
  * - Line opacity: Stress level (low=0.2, moderate=0.5, high=1.0)
  * - Brush interaction: Select polylines → highlight in other views
+ * 
+ * FIXED: Added state reads, dispatch calls, and coordinated linkage
  */
 
+
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
 
 const SERVICE_COLORS = {
   Emergency: "#3498db",
@@ -25,11 +29,13 @@ const SERVICE_COLORS = {
   General_Medicine: "#2ecc71"
 };
 
+
 const STRESS_OPACITY = {
   low: 0.2,
   moderate: 0.5,
   high: 1.0
 };
+
 
 export function init(svgElement, globalData, state, dispatch) {
   console.log("🎨 Initializing Task 5: Parallel Coordinate Plot");
@@ -41,12 +47,15 @@ export function init(svgElement, globalData, state, dispatch) {
     brushSelection: null
   };
 
+
   _createPCPStructure(svgElement);
   update(svgElement, globalData, state, dispatch);
 }
 
+
 function _createPCPStructure(svgElement) {
   d3.select(svgElement).selectAll("*").remove();
+
 
   const wrapper = d3.select(svgElement).append("div")
     .attr("class", "pcp-wrapper")
@@ -54,6 +63,7 @@ function _createPCPStructure(svgElement) {
     .style("height", "100%")
     .style("display", "flex")
     .style("flex-direction", "column");
+
 
   wrapper.append("div")
     .attr("class", "pcp-controls")
@@ -81,11 +91,13 @@ function _createPCPStructure(svgElement) {
       </div>
     `);
 
+
   wrapper.append("svg")
     .attr("class", "pcp-chart")
     .style("width", "100%")
     .style("flex", "1")
     .style("min-height", "500px");
+
 
   wrapper.append("div")
     .attr("class", "pcp-legend")
@@ -95,6 +107,7 @@ function _createPCPStructure(svgElement) {
     .style("font-size", "12px");
 }
 
+
 export function update(svgElement, globalData, state, dispatch) {
   try {
     if (!globalData.task5Data || globalData.task5Data.length === 0) {
@@ -102,17 +115,22 @@ export function update(svgElement, globalData, state, dispatch) {
       return;
     }
 
+
     const data = globalData.task5Data;
     const svg = d3.select(svgElement).select("svg.pcp-chart");
+
 
     const margin = { top: 20, right: 20, bottom: 40, left: 60 };
     const width = svg.node().clientWidth - margin.left - margin.right;
     const height = Math.max(500, svg.node().clientHeight - margin.top - margin.bottom);
 
+
     svg.selectAll("*").remove();
+
 
     const g = svg.append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
+
 
     // Define axes
     const axes = [
@@ -123,6 +141,7 @@ export function update(svgElement, globalData, state, dispatch) {
       { key: "patient_satisfaction", label: "Patient Satisfaction", range: [60, 99] }
     ];
 
+
     // Create scales
     const scales = {};
     axes.forEach(axis => {
@@ -132,10 +151,12 @@ export function update(svgElement, globalData, state, dispatch) {
         .range([height, 0]);
     });
 
+
     // Axis positions
     const axisPositions = d3.scalePoint()
       .domain(axes.map(d => d.key))
       .range([0, width]);
+
 
     // Draw axes
     const axisGroups = g.selectAll(".axis-group")
@@ -145,12 +166,14 @@ export function update(svgElement, globalData, state, dispatch) {
       .attr("class", "axis-group")
       .attr("transform", d => `translate(${axisPositions(d.key)},0)`);
 
+
     axisGroups.append("line")
       .attr("class", "axis-line")
       .attr("y1", 0)
       .attr("y2", height)
       .style("stroke", "#bdc3c7")
       .style("stroke-width", 2);
+
 
     axisGroups.append("text")
       .attr("class", "axis-label")
@@ -161,12 +184,14 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("font-size", "12px")
       .text(d => d.label);
 
+
     // Ticks
     axisGroups.append("g")
       .attr("class", "axis-ticks")
       .each(function(axis) {
         const scale = scales[axis.key];
         const tickValues = scale.ticks(5);
+
 
         d3.select(this).selectAll("g.tick")
           .data(tickValues)
@@ -178,6 +203,7 @@ export function update(svgElement, globalData, state, dispatch) {
           .attr("x2", -6)
           .style("stroke", "#bdc3c7")
           .style("stroke-width", 1);
+
 
         d3.select(this).selectAll("text.tick-label")
           .data(tickValues)
@@ -193,9 +219,21 @@ export function update(svgElement, globalData, state, dispatch) {
           .text(d => d.toFixed(0));
       });
 
+
+    // 🔧 FIX: Filter function for state constraints
+    const passesStateFilters = (d, index) => {
+      if (state.timeRange && (d.week < state.timeRange[0] || d.week > state.timeRange[1])) return false;
+      if (state.selectedWeek && d.week !== state.selectedWeek) return false;
+      if (state.selectedEventType && d.event !== state.selectedEventType) return false;
+      if (state.stressOnly && d.stress_level !== 'high') return false;
+      return true;
+    };
+
+
     // Draw polylines
     const pcpState = svgElement._pcpState;
     const brushSelection = pcpState.brushSelection;
+
 
     g.selectAll(".polyline")
       .data(data, (d, i) => i)
@@ -210,16 +248,22 @@ export function update(svgElement, globalData, state, dispatch) {
       })
       .style("fill", "none")
       .style("stroke", d => SERVICE_COLORS[d.service] || "#95a5a6")
-      .style("stroke-width", d => {
+      .style("stroke-width", (d, i) => {
+        // 🔧 FIX: Check state filters FIRST
+        if (!passesStateFilters(d, i)) return 1;
+        
         if (brushSelection && brushSelection.length > 0) {
-          const isSelected = brushSelection.includes(data.indexOf(d));
+          const isSelected = brushSelection.includes(i);
           return isSelected ? 2.5 : 1;
         }
         return 1.5;
       })
-      .style("opacity", d => {
+      .style("opacity", (d, i) => {
+        // 🔧 FIX: Check state filters FIRST
+        if (!passesStateFilters(d, i)) return 0.05;
+        
         if (brushSelection && brushSelection.length > 0) {
-          const isSelected = brushSelection.includes(data.indexOf(d));
+          const isSelected = brushSelection.includes(i);
           if (!isSelected) return 0.1;
         }
         return STRESS_OPACITY[d.stress_level] || 0.5;
@@ -229,11 +273,14 @@ export function update(svgElement, globalData, state, dispatch) {
           .style("stroke-width", 3)
           .style("filter", "drop-shadow(0 0 3px rgba(0,0,0,0.3))");
 
+
         _showPCPTooltip(event, d);
       })
-      .on("mouseout", function() {
+      .on("mouseout", function(event, d) {
         d3.select(this)
-          .style("stroke-width", d => {
+          .style("stroke-width", (d, i) => {
+            if (!passesStateFilters(d, i)) return 1;
+            
             if (brushSelection && brushSelection.length > 0) {
               const isSelected = brushSelection.includes(data.indexOf(d));
               return isSelected ? 2.5 : 1;
@@ -242,11 +289,14 @@ export function update(svgElement, globalData, state, dispatch) {
           })
           .style("filter", "none");
 
+
         _hidePCPTooltip();
       });
 
+
     // Brush interaction
     const draggedAxis = { key: null };
+
 
     axisGroups.append("g")
       .attr("class", "brush-target")
@@ -270,7 +320,9 @@ export function update(svgElement, globalData, state, dispatch) {
               Math.max(draggedAxis.y0, event.y)
             ];
 
+
             _drawBrushRect(g, draggedAxis, axisPositions);
+
 
             const selectedIndices = _getSelectedIndices(
               data,
@@ -278,14 +330,20 @@ export function update(svgElement, globalData, state, dispatch) {
               scales
             );
 
+
             pcpState.brushSelection = selectedIndices;
+
 
             g.selectAll(".polyline")
               .style("stroke-width", (d, i) => {
+                if (!passesStateFilters(d, i)) return 1;
+                
                 const isSelected = selectedIndices.includes(i);
                 return isSelected ? 2.5 : 1;
               })
               .style("opacity", (d, i) => {
+                if (!passesStateFilters(d, i)) return 0.05;
+                
                 const isSelected = selectedIndices.includes(i);
                 if (!isSelected) return 0.1;
                 return STRESS_OPACITY[d.stress_level] || 0.5;
@@ -293,35 +351,65 @@ export function update(svgElement, globalData, state, dispatch) {
           })
           .on("end", function(event) {
             g.selectAll(".brush-rect").remove();
+
+
+            // 🔧 FIX: DISPATCH to global state when brush ends
+            if (pcpState.brushSelection && pcpState.brushSelection.length > 0) {
+              const weeks = new Set();
+              pcpState.brushSelection.forEach(i => weeks.add(data[i].week));
+              const weekArray = Array.from(weeks).sort((a, b) => a - b);
+              if (weekArray.length > 0) {
+                dispatch({ 
+                  type: "SET_TIME_RANGE", 
+                  value: [weekArray[0], weekArray[weekArray.length - 1]] 
+                });
+              }
+            }
           })
       );
 
+
     _updatePCPLegend(svgElement);
+
 
     d3.select(svgElement).select("#pcp-reset-brush")
       .on("click", function() {
         pcpState.brushSelection = null;
 
+
+        // 🔧 FIX: Update polylines based on state filters
         g.selectAll(".polyline")
-          .style("stroke-width", 1.5)
-          .style("opacity", d => STRESS_OPACITY[d.stress_level] || 0.5);
+          .style("stroke-width", (d, i) => {
+            if (!passesStateFilters(d, i)) return 1;
+            return 1.5;
+          })
+          .style("opacity", (d, i) => {
+            if (!passesStateFilters(d, i)) return 0.05;
+            return STRESS_OPACITY[d.stress_level] || 0.5;
+          });
+
 
         g.selectAll(".brush-rect").remove();
 
+
         console.log("🔄 PCP Brush cleared");
       });
+
 
   } catch (error) {
     console.error("❌ Error in PCP update:", error);
   }
 }
 
+
 function _drawBrushRect(g, draggedAxis, axisPositions) {
   g.selectAll(".brush-rect").remove();
+
 
   const axisPos = axisPositions(draggedAxis.key);
   const y0 = draggedAxis.brushExtent[0];
   const y1 = draggedAxis.brushExtent[1];
+
 
   g.append("rect")
     .attr("class", "brush-rect")
@@ -334,13 +422,16 @@ function _drawBrushRect(g, draggedAxis, axisPositions) {
     .style("pointer-events", "none");
 }
 
+
 function _getSelectedIndices(data, draggedAxis, scales) {
   const scale = scales[draggedAxis.key];
   const y0 = draggedAxis.brushExtent[0];
   const y1 = draggedAxis.brushExtent[1];
 
+
   const value0 = scale.invert(Math.max(y0, y1));
   const value1 = scale.invert(Math.min(y0, y1));
+
 
   return data
     .map((d, i) => {
@@ -350,6 +441,7 @@ function _getSelectedIndices(data, draggedAxis, scales) {
     })
     .filter(i => i !== null);
 }
+
 
 function _showPCPTooltip(event, d) {
   const tooltip = d3.select("body").append("div")
@@ -373,6 +465,7 @@ function _showPCPTooltip(event, d) {
     .style("left", (event.pageX + 10) + "px")
     .style("top", (event.pageY + 10) + "px");
 
+
   d3.select("body").on("mousemove", function(moveEvent) {
     tooltip
       .style("left", (moveEvent.pageX + 10) + "px")
@@ -380,14 +473,17 @@ function _showPCPTooltip(event, d) {
   });
 }
 
+
 function _hidePCPTooltip() {
   d3.selectAll(".pcp-tooltip").remove();
   d3.select("body").on("mousemove", null);
 }
 
+
 function _updatePCPLegend(svgElement) {
   const legendDiv = d3.select(svgElement).select(".pcp-legend");
   legendDiv.selectAll("*").remove();
+
 
   const serviceHtml = `
     <div style="margin-bottom: 15px;">
@@ -409,6 +505,7 @@ function _updatePCPLegend(svgElement) {
     </div>
   `;
 
+
   const stressHtml = `
     <div>
       <strong style="color: #2c3e50;">Stress Level (Opacity):</strong><br>
@@ -428,6 +525,7 @@ function _updatePCPLegend(svgElement) {
       `).join("")}
     </div>
   `;
+
 
   legendDiv.html(serviceHtml + stressHtml);
 }

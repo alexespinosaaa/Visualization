@@ -18,9 +18,13 @@
  * - Selected points highlight in orange, unselected fade
  * - Hover for tooltip with full details
  * - "Clear Brush" button to reset selection
+ * 
+ * FIXED: Added state reads, dispatch calls, and coordinated linkage
  */
 
+
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
 
 const EVENT_COLORS = {
   none: "#95a5a6",
@@ -28,12 +32,14 @@ const EVENT_COLORS = {
   Other: "#f39c12"
 };
 
+
 const SERVICE_COLORS = {
   Emergency: "#3498db",
   ICU: "#e74c3c",
   Surgery: "#f39c12",
   General_Medicine: "#2ecc71"
 };
+
 
 export function init(svgElement, globalData, state, dispatch) {
   console.log("🎨 Initializing Task 3: Scatterplot Explorer");
@@ -47,12 +53,15 @@ export function init(svgElement, globalData, state, dispatch) {
     yScale: null
   };
 
+
   _createScatterStructure(svgElement);
   update(svgElement, globalData, state, dispatch);
 }
 
+
 function _createScatterStructure(svgElement) {
   d3.select(svgElement).selectAll("*").remove();
+
 
   const wrapper = d3.select(svgElement).append("div")
     .attr("class", "scatter-wrapper")
@@ -60,6 +69,7 @@ function _createScatterStructure(svgElement) {
     .style("height", "100%")
     .style("display", "flex")
     .style("flex-direction", "column");
+
 
   wrapper.append("div")
     .attr("class", "scatter-controls")
@@ -87,11 +97,13 @@ function _createScatterStructure(svgElement) {
       </div>
     `);
 
+
   wrapper.append("svg")
     .attr("class", "scatter-chart")
     .style("width", "100%")
     .style("flex", "1")
     .style("min-height", "500px");
+
 
   wrapper.append("div")
     .attr("class", "scatter-legend")
@@ -103,6 +115,7 @@ function _createScatterStructure(svgElement) {
     .style("gap", "40px");
 }
 
+
 export function update(svgElement, globalData, state, dispatch) {
   try {
     if (!globalData.task3Data || globalData.task3Data.length === 0) {
@@ -110,48 +123,60 @@ export function update(svgElement, globalData, state, dispatch) {
       return;
     }
 
+
     const data = globalData.task3Data;
     const svg = d3.select(svgElement).select("svg.scatter-chart");
+
 
     const margin = { top: 20, right: 30, bottom: 50, left: 70 };
     const width = svg.node().clientWidth - margin.left - margin.right;
     const height = Math.max(500, svg.node().clientHeight - margin.top - margin.bottom);
 
+
     svg.selectAll("*").remove();
+
 
     const g = svg.append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
+
 
     // ========== SCALES ==========
     const xScale = d3.scaleLinear()
       .domain([0, 100])
       .range([0, width]);
 
+
     const yScale = d3.scaleLinear()
       .domain([30, 100])
       .range([height, 0]);
+
 
     const sizeScale = d3.scaleSqrt()
       .domain([0, d3.max(data, d => +d.patients_refused)])
       .range([3, 15]);
 
+
     const opacityScale = d3.scaleLinear()
       .domain([60, 99])
       .range([0.3, 1.0]);
+
 
     // Store scales for brush interaction
     svgElement._scatterState.xScale = xScale;
     svgElement._scatterState.yScale = yScale;
 
+
     // ========== AXES ==========
     const xAxis = d3.axisBottom(xScale).ticks(10);
     const yAxis = d3.axisLeft(yScale).ticks(10);
+
 
     // X-axis
     g.append("g")
       .attr("transform", `translate(0,${height})`)
       .call(xAxis)
       .style("color", "#7f8c8d");
+
 
     g.append("text")
       .attr("transform", `translate(${width / 2},${height + 40})`)
@@ -161,10 +186,12 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("color", "#2c3e50")
       .text("Staff Present (%)");
 
+
     // Y-axis
     g.append("g")
       .call(yAxis)
       .style("color", "#7f8c8d");
+
 
     g.append("text")
       .attr("transform", "rotate(-90)")
@@ -175,6 +202,7 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("font-weight", "bold")
       .style("color", "#2c3e50")
       .text("Staff Morale");
+
 
     // Grid lines
     g.append("g")
@@ -187,9 +215,22 @@ export function update(svgElement, globalData, state, dispatch) {
           .tickFormat("")
       );
 
-    // ========== CIRCLES (with brush state) ==========
+
+    // ========== FILTER FUNCTION (NEW) ==========
+    // 🔧 FIX: Filter points based on global state
+    const passesStateFilters = (d, index) => {
+      if (state.timeRange && (d.week < state.timeRange[0] || d.week > state.timeRange[1])) return false;
+      if (state.selectedWeek && d.week !== state.selectedWeek) return false;
+      if (state.selectedEventType && d.event !== state.selectedEventType) return false;
+      if (state.stressOnly && d.stress_level !== 'high') return false;
+      return true;
+    };
+
+
+    // ========== CIRCLES (with brush state + global state) ==========
     const scatterState = svgElement._scatterState;
     const brushSelection = scatterState.brushSelection;
+
 
     const circles = g.selectAll(".point")
       .data(data, (d, i) => i)
@@ -202,17 +243,23 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", d => EVENT_COLORS[d.event] || "#95a5a6")
       .style("stroke", d => SERVICE_COLORS[d.service] || "#95a5a6")
       .style("stroke-width", 2)
-      .style("opacity", d => {
+      .style("opacity", (d, i) => {
+        // 🔧 FIX: Check state filters FIRST
+        if (!passesStateFilters(d, i)) return 0.1;
+        
+        // Then check local brush selection
         if (brushSelection && brushSelection.length > 0) {
-          const isSelected = brushSelection.includes(data.indexOf(d));
+          const isSelected = brushSelection.includes(i);
           if (!isSelected) return 0.1;
         }
+        
         return opacityScale(+d.patient_satisfaction);
       })
       .on("mouseover", function(event, d) {
         d3.select(this)
           .style("stroke-width", 3)
           .style("filter", "drop-shadow(0 0 4px rgba(0,0,0,0.4))");
+
 
         _showScatterTooltip(event, d);
       })
@@ -221,11 +268,14 @@ export function update(svgElement, globalData, state, dispatch) {
           .style("stroke-width", 2)
           .style("filter", "none");
 
+
         _hideScatterTooltip();
       });
 
+
     // ========== RECTANGLE BRUSH ==========
     const brushSelection2 = { start: null, end: null, active: false };
+
 
     g.append("rect")
       .attr("class", "brush-background")
@@ -242,11 +292,13 @@ export function update(svgElement, globalData, state, dispatch) {
           .on("drag", function(event) {
             brushSelection2.end = { x: event.x, y: event.y };
 
+
             // Draw brush rect
             const x0 = Math.min(brushSelection2.start.x, brushSelection2.end.x);
             const x1 = Math.max(brushSelection2.start.x, brushSelection2.end.x);
             const y0 = Math.min(brushSelection2.start.y, brushSelection2.end.y);
             const y1 = Math.max(brushSelection2.start.y, brushSelection2.end.y);
+
 
             g.selectAll(".brush-rect").remove();
             g.append("rect")
@@ -260,6 +312,7 @@ export function update(svgElement, globalData, state, dispatch) {
               .style("stroke", "#3498db")
               .style("stroke-width", 2);
 
+
             // Select points in brush
             const selectedIndices = [];
             data.forEach((d, i) => {
@@ -270,11 +323,17 @@ export function update(svgElement, globalData, state, dispatch) {
               }
             });
 
+
             scatterState.brushSelection = selectedIndices;
+
 
             // Update circles
             g.selectAll(".point")
               .style("opacity", (d, i) => {
+                // 🔧 FIX: Check state filters FIRST
+                if (!passesStateFilters(d, i)) return 0.1;
+                
+                // Then local brush
                 const isSelected = selectedIndices.includes(i);
                 if (!isSelected) return 0.1;
                 return opacityScale(+d.patient_satisfaction);
@@ -291,31 +350,56 @@ export function update(svgElement, globalData, state, dispatch) {
           .on("end", function(event) {
             brushSelection2.active = false;
             g.selectAll(".brush-rect").remove();
+
+
+            // 🔧 FIX: DISPATCH to global state when brush ends
+            if (scatterState.brushSelection && scatterState.brushSelection.length > 0) {
+              const weeks = new Set();
+              scatterState.brushSelection.forEach(i => weeks.add(data[i].week));
+              const weekArray = Array.from(weeks).sort((a, b) => a - b);
+              if (weekArray.length > 0) {
+                dispatch({ 
+                  type: "SET_TIME_RANGE", 
+                  value: [weekArray[0], weekArray[weekArray.length - 1]] 
+                });
+              }
+            }
           })
       );
 
+
     // ========== LEGEND ==========
     _updateScatterLegend(svgElement);
+
 
     // ========== RESET BUTTON ==========
     d3.select(svgElement).select("#scatter-reset-brush")
       .on("click", function() {
         scatterState.brushSelection = null;
 
+
+        // 🔧 FIX: Update points based on state filters (not just brushSelection)
         g.selectAll(".point")
-          .style("opacity", d => opacityScale(+d.patient_satisfaction))
+          .style("opacity", (d, i) => {
+            if (!passesStateFilters(d, i)) return 0.1;
+            return opacityScale(+d.patient_satisfaction);
+          })
           .style("stroke-width", 2)
           .style("filter", "none");
 
+
         g.selectAll(".brush-rect").remove();
+
 
         console.log("🔄 Scatter Brush cleared");
       });
+
 
   } catch (error) {
     console.error("❌ Error in Scatter update:", error);
   }
 }
+
 
 function _showScatterTooltip(event, d) {
   const tooltip = d3.select("body").append("div")
@@ -342,6 +426,7 @@ function _showScatterTooltip(event, d) {
     .style("left", (event.pageX + 10) + "px")
     .style("top", (event.pageY + 10) + "px");
 
+
   d3.select("body").on("mousemove", function(moveEvent) {
     tooltip
       .style("left", (moveEvent.pageX + 10) + "px")
@@ -349,14 +434,17 @@ function _showScatterTooltip(event, d) {
   });
 }
 
+
 function _hideScatterTooltip() {
   d3.selectAll(".scatter-tooltip").remove();
   d3.select("body").on("mousemove", null);
 }
 
+
 function _updateScatterLegend(svgElement) {
   const legendDiv = d3.select(svgElement).select(".scatter-legend");
   legendDiv.selectAll("*").remove();
+
 
   // Event colors
   const eventHtml = `
@@ -377,6 +465,7 @@ function _updateScatterLegend(svgElement) {
       `).join("")}
     </div>
   `;
+
 
   // Service colors
   const serviceHtml = `
@@ -399,6 +488,7 @@ function _updateScatterLegend(svgElement) {
     </div>
   `;
 
+
   // Size explanation
   const sizeHtml = `
     <div>
@@ -409,6 +499,7 @@ function _updateScatterLegend(svgElement) {
     </div>
   `;
 
+
   // Opacity explanation
   const opacityHtml = `
     <div>
@@ -418,6 +509,7 @@ function _updateScatterLegend(svgElement) {
       </div>
     </div>
   `;
+
 
   legendDiv.html(eventHtml + serviceHtml + sizeHtml + opacityHtml);
 }
