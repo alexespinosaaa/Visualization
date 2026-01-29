@@ -1,195 +1,648 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hospital Operations Center</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #2d3436;
-            --accent: #0984e3;
-            --bg: #f5f7fa;
-            --card: #ffffff;
-        }
-        body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg);
-            margin: 0;
-            padding: 20px;
-            color: var(--primary);
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hospital Risk Explorer</title>
 
-        .dashboard { max-width: 1200px; margin: 0 auto; }
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
+  <style>
+    :root{
+      /* monochrome-first (black/white space), with one accent */
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --ink: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --shadow: 0 6px 18px rgba(17,24,39,0.06);
+      --accent: #0984e3;
+      --danger: #d63031;
+      --radius: 14px;
 
-        h1 { font-size: 22px; font-weight: 700; margin: 0; }
-        .subtitle { font-size: 14px; color: #636e72; }
+      /* density controls */
+      --gap: 12px;
+      --pad: 12px;
+      --headerH: 62px;
+    }
 
-        .panel {
-            background: var(--card);
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
+    *{ box-sizing: border-box; }
 
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
-        }
+    body{
+      font-family: "Inter", sans-serif;
+      background: var(--bg);
+      margin: 0;
+      color: var(--ink);
+    }
 
-        .panel-title { font-weight: 600; font-size: 16px; }
+    .dashboard{
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 14px 18px 22px 18px;
+    }
 
-        .btn-group {
-            display: flex;
-            gap: 8px;
-            background: #f1f2f6;
-            padding: 4px;
-            border-radius: 8px;
-        }
+    /* ---------------------------
+       STICKY HEADER (always visible)
+       --------------------------- */
+    header{
+      position: sticky;
+      top: 0;
+      z-index: 2000;
+      background: rgba(246,247,249,0.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(229,231,235,0.85);
 
-        .btn {
-            border: none;
-            background: transparent;
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 13px;
-            color: #636e72;
-            transition: all 0.2s;
-        }
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      padding: 10px 2px;
+      margin-bottom: 12px;
+    }
 
-        .btn:hover { background: #dfe6e9; }
-        .btn.active {
-            background: white;
-            color: var(--primary);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+    .header-left{
+      display:flex;
+      flex-direction:column;
+      gap: 2px;
+      min-width: 260px;
+    }
 
-        .btn-reset {
-            color: #d63031;
-            background: rgba(214, 48, 49, 0.1);
-        }
+    h1{
+      font-size: 20px;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
 
-        .btn-reset:hover {
-            background: rgba(214, 48, 49, 0.2);
-        }
+    .subtitle{
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.2rem;
+    }
 
-        .chart-tooltip {
-            position: absolute;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 10px;
-            border-radius: 6px;
-            border: 1px solid #ddd;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            font-size: 12px;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.1s;
-            z-index: 1000;
-        }
-    </style>
+    .header-right{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap: 10px;
+      flex: 1;
+    }
+
+    /* Active filters chip row (global; reduces panel noise) */
+    .filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 8px;
+      justify-content:flex-end;
+      align-items:center;
+      max-width: 980px;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 10px;
+      box-shadow: 0 2px 6px rgba(17,24,39,0.05);
+      font-size: 12px;
+      color: var(--ink);
+      user-select:none;
+      white-space: nowrap;
+    }
+    .chip .label{
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .chip button{
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor:pointer;
+      font-weight: 900;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    .chip button:hover{ color: var(--ink); }
+
+    .btn-reset{
+      border: 1px solid rgba(214,48,49,0.35);
+      background: rgba(214,48,49,0.08);
+      color: var(--danger);
+      padding: 8px 12px;
+      border-radius: 10px;
+      cursor:pointer;
+      font-weight: 800;
+      font-size: 12px;
+      white-space: nowrap;
+      transition: 0.15s ease;
+    }
+    .btn-reset:hover{
+      background: rgba(214,48,49,0.12);
+      transform: translateY(-1px);
+    }
+
+    /* ---------------------------
+       GRID (Munzner flow)
+       Row 1: Calendar (anchor)
+       Row 2: Time series + Event impact (paired analysis)
+       Row 3: Bench (enclosed explanation station)
+       Row 4: Table (details-on-demand)
+       --------------------------- */
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "calendar calendar"
+        "timeseries events"
+        "staffbench staffbench"
+        "table table";
+      gap: var(--gap);
+      align-items: start;
+    }
+
+    #view-calendar{ grid-area: calendar; }
+    #view-timeseries{ grid-area: timeseries; }
+    #view-events{ grid-area: events; }
+    #view-staffbench{ grid-area: staffbench; }
+    #view-table{ grid-area: table; }
+
+    /* ---------------------------
+       PANELS (tight padding, less chrome)
+       --------------------------- */
+    .panel{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: var(--pad);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap: 10px;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(229,231,235,0.9);
+    }
+
+    .panel-header-left{
+      display:flex;
+      flex-direction:column;
+      gap: 3px;
+      min-width: 220px;
+    }
+
+    .panel-title{
+      font-weight: 900;
+      font-size: 13px;
+      letter-spacing: -0.01em;
+      margin: 0;
+      line-height: 1.15;
+    }
+
+    .panel-subtitle{
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.05rem;
+    }
+
+    .hint{
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* Controls */
+    .btn-group{
+      display:flex;
+      gap: 6px;
+      background: #f2f3f5;
+      border: 1px solid var(--border);
+      padding: 3px;
+      border-radius: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn{
+      border: none;
+      background: transparent;
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 900;
+      font-size: 12px;
+      color: var(--muted);
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover{ background:#e9ecef; color: var(--ink); }
+    .btn.active{
+      background:#fff;
+      color: var(--ink);
+      box-shadow: 0 2px 6px rgba(17,24,39,0.08);
+      border: 1px solid rgba(17,24,39,0.08);
+    }
+
+    /* ---- Selection summary row (small, under calendar header) ---- */
+    .summary-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(229,231,235,0.95);
+    }
+    .summary-left{
+      font-size: 12px;
+      color: var(--muted);
+      display:flex;
+      align-items:center;
+      flex-wrap: wrap;
+      gap: 8px;
+      line-height: 1.15rem;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(229,231,235,0.95);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 1px 4px rgba(17,24,39,0.05);
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .summary-pill .k{
+      color: var(--muted);
+      font-weight: 900;
+    }
+
+    /* Sensible working heights */
+    #view-calendar{ min-height: 280px; }
+    #view-timeseries{ min-height: 360px; }
+    #view-events{ min-height: 360px; }
+    #view-staffbench{ min-height: 520px; }
+    #view-table{ min-height: 240px; }
+
+    /* Staff bench: enclosed station + light subpanels */
+    .stack{
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+    }
+
+    .subpanel{
+      border: 1px solid rgba(229,231,235,0.70);
+      border-radius: 12px;
+      padding: 10px 10px 8px 10px;
+      background: #ffffff;
+    }
+
+    .subpanel-title{
+      font-size: 12px;
+      font-weight: 900;
+      margin: 0 0 4px 0;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+
+    .subpanel-hint{
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 6px 0;
+    }
+
+    #view-staffing, #view-scatter{
+      width: 100%;
+      min-height: 220px;
+    }
+
+    /* Tooltip */
+    .chart-tooltip{
+      position: absolute;
+      background: rgba(255,255,255,0.97);
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(229,231,235,0.95);
+      box-shadow: 0 8px 22px rgba(17,24,39,0.14);
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      z-index: 5000;
+    }
+
+    /* Responsive: collapse to 1 column */
+    @media (max-width: 1050px){
+      header{
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+      .header-right{
+        justify-content: space-between;
+      }
+      .filters{
+        justify-content:flex-start;
+        max-width: none;
+      }
+      .grid{
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "calendar"
+          "timeseries"
+          "events"
+          "staffbench"
+          "table";
+      }
+      #view-calendar{ min-height: 260px; }
+      #view-timeseries, #view-events{ min-height: 330px; }
+    }
+  </style>
 </head>
 
 <body>
-<div class="dashboard">
+  <div class="dashboard">
 
+    <!-- Sticky global header -->
     <header>
-        <div>
-            <h1>Hospital Risk Explorer</h1>
-            <span class="subtitle">Capacity, Wellbeing & Event Impact Analysis</span>
-        </div>
-        <button class="btn btn-reset" onclick="window.resetState()">Reset All Filters</button>
+      <div class="header-left">
+        <h1>Hospital Risk Explorer</h1>
+        <div class="subtitle">Capacity, wellbeing & event impact — interactive operations dashboard</div>
+      </div>
+
+      <div class="header-right">
+        <div class="filters" id="active-filters"></div>
+        <button class="btn-reset" onclick="window.resetState()">Reset All</button>
+      </div>
     </header>
 
-    <!-- CALENDAR -->
-    <div class="panel" id="view-calendar">
+    <div class="grid">
+
+      <!-- CALENDAR (anchor / primary context) -->
+      <div class="panel" id="view-calendar">
         <div class="panel-header">
-            <span class="panel-title">1. Annual Risk Overview (Calendar)</span>
-            <div class="btn-group" id="metric-controls">
-                <button class="btn active" onclick="setMetric('refusals')">Patient Refusals</button>
-                <button class="btn" onclick="setMetric('morale')">Staff Morale</button>
-                <button class="btn" onclick="setMetric('occupancy')">Occupancy %</button>
-                <button class="btn" onclick="setMetric('satisfaction')">Patient Satisfaction</button>
-            </div>
-        </div>
-    </div>
+          <div class="panel-header-left">
+            <div class="panel-title">Annual Risk Overview</div>
+            <div class="panel-subtitle">Central context: click week to drive all views</div>
+          </div>
 
-    <!-- TIME SERIES -->
-    <div class="panel" id="view-timeseries">
+          <div class="btn-group" id="metric-controls">
+            <button class="btn active" onclick="setMetric('refusals')">Refusals</button>
+            <button class="btn" onclick="setMetric('morale')">Morale</button>
+            <button class="btn" onclick="setMetric('occupancy')">Occupancy</button>
+            <button class="btn" onclick="setMetric('satisfaction')">Satisfaction</button>
+          </div>
+        </div>
+
+        <!-- SVG injected by view-calendar.js -->
+
+        <!-- small selection summary (high signal, low chrome) -->
+        <div class="summary-row" id="selection-summary" aria-hidden="true">
+          <div class="summary-left" id="summary-left">
+            <!-- filled by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TIMESERIES (paired analysis) -->
+      <div class="panel" id="view-timeseries">
         <div class="panel-header">
-            <span class="panel-title">2. Detail Analysis & Controller</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Scroll</strong> to Zoom • <strong>Drag</strong> to Brush • <strong>Click</strong> to Select Week
-            </span>
+          <div class="panel-header-left">
+            <div class="panel-title">Time Series Focus</div>
+            <div class="panel-subtitle">Brush range + click week for details</div>
+          </div>
+          <div class="hint">
+            <strong>Scroll</strong> zoom • <strong>Drag</strong> brush • <strong>Click</strong> select week
+          </div>
         </div>
-    </div>
+        <!-- SVG injected by view-timeseries.js -->
+      </div>
 
-    <!-- EVENT IMPACT -->
-    <div class="panel" id="view-events">
+      <!-- EVENT IMPACT (paired analysis) -->
+      <div class="panel" id="view-events">
         <div class="panel-header">
-            <span class="panel-title">3. Event Impact Distributions</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> event to filter • <strong>Alt-click</strong> to clear
-            </span>
+          <div class="panel-header-left">
+            <div class="panel-title">Event Impact</div>
+            <div class="panel-subtitle">Distribution shifts inside the selected time window</div>
+          </div>
+          <div class="hint">
+            <strong>Click</strong> event filter • <strong>Alt-click</strong> clear
+          </div>
         </div>
-    </div>
+        <!-- SVG injected by view-event-impact.js -->
+      </div>
 
-    <!-- TABLE -->
-    <div class="panel" id="view-table">
+      <!-- BENCH (enclosed explanation station) -->
+      <div class="panel" id="view-staffbench">
         <div class="panel-header">
-            <span class="panel-title">4. Week Lookup Table</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> row to select • <strong>Click headers</strong> to sort
-            </span>
+          <div class="panel-header-left">
+            <div class="panel-title">Staffing & Composition Bench</div>
+            <div class="panel-subtitle">Explain patterns: presence/absence + composition → outcomes</div>
+          </div>
+          <div class="hint">Linked with time range + service selection</div>
         </div>
-    </div>
 
-        <!-- STAFFING (Person C / Task 3) -->
-    <div class="panel" id="view-staffing">
+        <div class="stack">
+          <div class="subpanel">
+            <div class="subpanel-title">Staffing Difference Explorer</div>
+            <div class="subpanel-hint">Click service • Toggle Absolute/Delta</div>
+            <div id="view-staffing"></div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">Composition vs Outcome</div>
+            <div class="subpanel-hint">Brush points to set range • Toggle Stress-only</div>
+            <div id="view-scatter"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE (details-on-demand) -->
+      <div class="panel" id="view-table">
         <div class="panel-header">
-            <span class="panel-title">5. Staffing Difference Explorer</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> service to select • <strong>Toggle</strong> Absolute/Delta
-            </span>
+          <div class="panel-header-left">
+            <div class="panel-title">Exact Values Lookup</div>
+            <div class="panel-subtitle">Confirm values and navigate to service/week</div>
+          </div>
+          <div class="hint">
+            <strong>Click</strong> row select • <strong>Headers</strong> sort
+          </div>
         </div>
+        <!-- HTML table injected by view-table.js -->
+      </div>
+
     </div>
+  </div>
 
-    <!-- SCATTER (Person C / Task 4) -->
-    <div class="panel" id="view-scatter">
-        <div class="panel-header">
-            <span class="panel-title">6. Staff Composition vs Outcome (Scatter)</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Brush</strong> to set week range • <strong>Toggle</strong> Stress-only
-            </span>
-        </div>
-    </div>
+  <div class="chart-tooltip"></div>
 
-</div>
+  <script type="module" src="./main.js"></script>
 
-<div class="chart-tooltip"></div>
-
-<script type="module" src="./main.js"></script>
-<script>
+  <script>
+    // Metric controls (existing behavior)
     function setMetric(m) {
-        document.querySelectorAll('#metric-controls .btn')
-            .forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
-        window.dispatch({ type: "SET_METRIC", value: m });
+      document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      window.dispatch({ type: "SET_METRIC", value: m });
     }
-    
-</script>
+
+    // Active filter chips (global state display)
+    function renderChips(s) {
+      const el = document.getElementById("active-filters");
+      if (!el) return;
+
+      const chips = [];
+
+      if (s?.timeRange && Array.isArray(s.timeRange) && s.timeRange.length === 2) {
+        chips.push({
+          label: "Weeks",
+          value: `${s.timeRange[0]}–${s.timeRange[1]}`,
+          clear: () => window.dispatch({ type: "SET_TIME_RANGE", value: null })
+        });
+      }
+
+      if (s?.selectedWeek !== null && s?.selectedWeek !== undefined) {
+        chips.push({
+          label: "Week",
+          value: `W${s.selectedWeek}`,
+          clear: () => window.dispatch({ type: "SET_SELECTED_WEEK", value: s.selectedWeek })
+        });
+      }
+
+      if (s?.selectedEventType) {
+        chips.push({
+          label: "Event",
+          value: String(s.selectedEventType).toUpperCase(),
+          clear: () => window.dispatch({ type: "SET_SELECTED_EVENT_TYPE", value: s.selectedEventType })
+        });
+      }
+
+      if (s?.selectedService) {
+        chips.push({
+          label: "Service",
+          value: String(s.selectedService).replaceAll("_"," ").toUpperCase(),
+          clear: () => window.dispatch({ type: "SET_SELECTED_SERVICE", value: s.selectedService })
+        });
+      }
+
+      if (s?.metric) {
+        chips.push({
+          label: "Metric",
+          value: String(s.metric).toUpperCase(),
+          clear: null
+        });
+      }
+
+      el.innerHTML = "";
+      chips.forEach(c => {
+        const chip = document.createElement("div");
+        chip.className = "chip";
+
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = c.label;
+
+        const value = document.createElement("span");
+        value.textContent = c.value;
+
+        chip.appendChild(label);
+        chip.appendChild(value);
+
+        if (c.clear) {
+          const x = document.createElement("button");
+          x.type = "button";
+          x.textContent = "×";
+          x.title = "Clear filter";
+          x.onclick = c.clear;
+          chip.appendChild(x);
+        }
+
+        el.appendChild(chip);
+      });
+    }
+
+    // Small selection summary under calendar (high signal, low noise)
+    function renderSummary(s) {
+      const wrap = document.getElementById("selection-summary");
+      const left = document.getElementById("summary-left");
+      if (!wrap || !left) return;
+
+      const pills = [];
+
+      const metric = (s?.metric) ? String(s.metric) : "refusals";
+      pills.push({ k: "Metric", v: metric.toUpperCase() });
+
+      if (s?.timeRange && Array.isArray(s.timeRange) && s.timeRange.length === 2) {
+        pills.push({ k: "Window", v: `W${s.timeRange[0]}–W${s.timeRange[1]}` });
+      } else {
+        pills.push({ k: "Window", v: "Full year" });
+      }
+
+      if (s?.selectedWeek !== null && s?.selectedWeek !== undefined) {
+        pills.push({ k: "Selected", v: `W${s.selectedWeek}` });
+      } else {
+        pills.push({ k: "Selected", v: "—" });
+      }
+
+      if (s?.selectedEventType) pills.push({ k: "Event", v: String(s.selectedEventType).toUpperCase() });
+      if (s?.selectedService) pills.push({ k: "Service", v: String(s.selectedService).replaceAll("_"," ").toUpperCase() });
+
+      left.innerHTML = "";
+      pills.forEach(p => {
+        const pill = document.createElement("span");
+        pill.className = "summary-pill";
+
+        const k = document.createElement("span");
+        k.className = "k";
+        k.textContent = p.k + ":";
+
+        const v = document.createElement("span");
+        v.textContent = p.v;
+
+        pill.appendChild(k);
+        pill.appendChild(v);
+        left.appendChild(pill);
+      });
+
+      wrap.setAttribute("aria-hidden", pills.length ? "false" : "true");
+    }
+
+    // Lightweight state watcher:
+    // Best practice is: set `window.__dashState = state;` inside main.js updateAllViews().
+    (function(){
+      let last = "";
+      setInterval(() => {
+        const s = window.__dashState || window.state;
+        if (!s) return;
+
+        const snap = JSON.stringify({
+          selectedWeek: s.selectedWeek,
+          timeRange: s.timeRange,
+          selectedEventType: s.selectedEventType,
+          selectedService: s.selectedService,
+          metric: s.metric
+        });
+
+        if (snap !== last) {
+          last = snap;
+          renderChips(s);
+          renderSummary(s);
+        }
+      }, 180);
+    })();
+  </script>
 </body>
 </html>
