@@ -15,7 +15,7 @@
       --ink: #111827;
       --muted: #6b7280;
       --border: #e5e7eb;
-      --shadow: 0 6px 18px rgba(17,24,39,0.06);
+      --shadow: 0 8px 22px rgba(17,24,39,0.06);
       --accent: #0984e3;
       --danger: #d63031;
       --radius: 14px;
@@ -23,7 +23,6 @@
       /* density controls */
       --gap: 12px;
       --pad: 12px;
-      --headerH: 62px;
     }
 
     *{ box-sizing: border-box; }
@@ -36,9 +35,9 @@
     }
 
     .dashboard{
-      max-width: 1400px;
+      max-width: 1440px;
       margin: 0 auto;
-      padding: 14px 18px 22px 18px;
+      padding: 12px 16px 22px 16px;
     }
 
     /* ---------------------------
@@ -146,15 +145,15 @@
     }
 
     /* ---------------------------
-       GRID (Munzner flow)
-       Row 1: Calendar (anchor)
-       Row 2: Time series + Event impact (paired analysis)
-       Row 3: Bench (enclosed explanation station)
-       Row 4: Table (details-on-demand)
+       GRID (keep IDs stable; improve proportions)
+       Row 1: Calendar spans width
+       Row 2: Time series + Event impact (paired)
+       Row 3: Staffbench spans width
+       Row 4: Table spans width
        --------------------------- */
     .grid{
       display:grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.05fr 0.95fr;
       grid-template-areas:
         "calendar calendar"
         "timeseries events"
@@ -164,6 +163,7 @@
       align-items: start;
     }
 
+    /* IMPORTANT: keep these IDs exactly — main.js depends on them */
     #view-calendar{ grid-area: calendar; }
     #view-timeseries{ grid-area: timeseries; }
     #view-events{ grid-area: events; }
@@ -171,7 +171,7 @@
     #view-table{ grid-area: table; }
 
     /* ---------------------------
-       PANELS (tight padding, less chrome)
+       PANELS (tight padding, higher data-ink)
        --------------------------- */
     .panel{
       background: var(--card);
@@ -289,12 +289,12 @@
       font-weight: 900;
     }
 
-    /* Sensible working heights */
-    #view-calendar{ min-height: 280px; }
-    #view-timeseries{ min-height: 360px; }
-    #view-events{ min-height: 360px; }
-    #view-staffbench{ min-height: 520px; }
-    #view-table{ min-height: 240px; }
+    /* Better working heights (less empty space, more chart space) */
+    #view-calendar{ min-height: 320px; }
+    #view-timeseries{ min-height: 420px; }
+    #view-events{ min-height: 420px; }
+    #view-staffbench{ min-height: 560px; }
+    #view-table{ min-height: 260px; }
 
     /* Staff bench: enclosed station + light subpanels */
     .stack{
@@ -326,7 +326,7 @@
 
     #view-staffing, #view-scatter{
       width: 100%;
-      min-height: 220px;
+      min-height: 240px;
     }
 
     /* Tooltip */
@@ -367,8 +367,8 @@
           "staffbench"
           "table";
       }
-      #view-calendar{ min-height: 260px; }
-      #view-timeseries, #view-events{ min-height: 330px; }
+      #view-calendar{ min-height: 300px; }
+      #view-timeseries, #view-events{ min-height: 380px; }
     }
   </style>
 </head>
@@ -409,15 +409,12 @@
 
         <!-- SVG injected by view-calendar.js -->
 
-        <!-- small selection summary (high signal, low chrome) -->
         <div class="summary-row" id="selection-summary" aria-hidden="true">
-          <div class="summary-left" id="summary-left">
-            <!-- filled by JS -->
-          </div>
+          <div class="summary-left" id="summary-left"></div>
         </div>
       </div>
 
-      <!-- TIMESERIES (paired analysis) -->
+      <!-- TIMESERIES -->
       <div class="panel" id="view-timeseries">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -428,10 +425,9 @@
             <strong>Scroll</strong> zoom • <strong>Drag</strong> brush • <strong>Click</strong> select week
           </div>
         </div>
-        <!-- SVG injected by view-timeseries.js -->
       </div>
 
-      <!-- EVENT IMPACT (paired analysis) -->
+      <!-- EVENT IMPACT -->
       <div class="panel" id="view-events">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -442,10 +438,9 @@
             <strong>Click</strong> event filter • <strong>Alt-click</strong> clear
           </div>
         </div>
-        <!-- SVG injected by view-event-impact.js -->
       </div>
 
-      <!-- BENCH (enclosed explanation station) -->
+      <!-- STAFF BENCH -->
       <div class="panel" id="view-staffbench">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -470,7 +465,7 @@
         </div>
       </div>
 
-      <!-- TABLE (details-on-demand) -->
+      <!-- TABLE -->
       <div class="panel" id="view-table">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -481,7 +476,6 @@
             <strong>Click</strong> row select • <strong>Headers</strong> sort
           </div>
         </div>
-        <!-- HTML table injected by view-table.js -->
       </div>
 
     </div>
@@ -492,14 +486,12 @@
   <script type="module" src="./main.js"></script>
 
   <script>
-    // Metric controls (existing behavior)
     function setMetric(m) {
       document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
       event.target.classList.add('active');
       window.dispatch({ type: "SET_METRIC", value: m });
     }
 
-    // Active filter chips (global state display)
     function renderChips(s) {
       const el = document.getElementById("active-filters");
       if (!el) return;
@@ -574,7 +566,6 @@
       });
     }
 
-    // Small selection summary under calendar (high signal, low noise)
     function renderSummary(s) {
       const wrap = document.getElementById("selection-summary");
       const left = document.getElementById("summary-left");
@@ -620,8 +611,6 @@
       wrap.setAttribute("aria-hidden", pills.length ? "false" : "true");
     }
 
-    // Lightweight state watcher:
-    // Best practice is: set `window.__dashState = state;` inside main.js updateAllViews().
     (function(){
       let last = "";
       setInterval(() => {
