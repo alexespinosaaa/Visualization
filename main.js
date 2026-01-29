@@ -38,9 +38,10 @@ let state = {
 
 
 // ---- CSV PATHS ----
-const SERVICES_CSV = "../Hospital Beds Management/services_weekly.csv";
-const STAFF_SCHEDULE_CSV = "../Hospital Beds Management/staff_schedule.csv";
-const STAFF_CSV = "../Hospital Beds Management/staff.csv";
+const SERVICES_CSV = "../../Hospital Beds Management/services_weekly.csv";
+const STAFF_SCHEDULE_CSV = "../../Hospital Beds Management/staff_schedule.csv";
+const STAFF_CSV = "../../Hospital Beds Management/staff.csv";
+
 
 // ---- GLOBAL DATA ----
 let globalData = {};
