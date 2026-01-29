@@ -9,7 +9,6 @@
 
   <style>
     :root{
-      /* monochrome-first (black/white space), with one accent */
       --bg: #f6f7f9;
       --card: #ffffff;
       --ink: #111827;
@@ -19,8 +18,6 @@
       --accent: #0984e3;
       --danger: #d63031;
       --radius: 14px;
-
-      /* density controls */
       --gap: 12px;
       --pad: 12px;
       --headerH: 62px;
@@ -41,9 +38,6 @@
       padding: 14px 18px 22px 18px;
     }
 
-    /* ---------------------------
-       STICKY HEADER (always visible)
-       --------------------------- */
     header{
       position: sticky;
       top: 0;
@@ -51,7 +45,6 @@
       background: rgba(246,247,249,0.92);
       backdrop-filter: blur(10px);
       border-bottom: 1px solid rgba(229,231,235,0.85);
-
       display:flex;
       align-items:center;
       justify-content:space-between;
@@ -89,45 +82,6 @@
       flex: 1;
     }
 
-    /* Active filters chip row (global; reduces panel noise) */
-    .filters{
-      display:flex;
-      flex-wrap:wrap;
-      gap: 8px;
-      justify-content:flex-end;
-      align-items:center;
-      max-width: 980px;
-    }
-
-    .chip{
-      display:inline-flex;
-      align-items:center;
-      gap: 8px;
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 6px 10px;
-      box-shadow: 0 2px 6px rgba(17,24,39,0.05);
-      font-size: 12px;
-      color: var(--ink);
-      user-select:none;
-      white-space: nowrap;
-    }
-    .chip .label{
-      color: var(--muted);
-      font-weight: 800;
-    }
-    .chip button{
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      cursor:pointer;
-      font-weight: 900;
-      line-height: 1;
-      padding: 0 2px;
-    }
-    .chip button:hover{ color: var(--ink); }
-
     .btn-reset{
       border: 1px solid rgba(214,48,49,0.35);
       background: rgba(214,48,49,0.08);
@@ -140,26 +94,20 @@
       white-space: nowrap;
       transition: 0.15s ease;
     }
+
     .btn-reset:hover{
       background: rgba(214,48,49,0.12);
       transform: translateY(-1px);
     }
 
-    /* ---------------------------
-       GRID (Munzner flow)
-       Row 1: Calendar (anchor)
-       Row 2: Time series + Event impact (paired analysis)
-       Row 3: Bench (enclosed explanation station)
-       Row 4: Table (details-on-demand)
-       --------------------------- */
     .grid{
       display:grid;
       grid-template-columns: 1fr 1fr;
       grid-template-areas:
         "calendar calendar"
         "timeseries events"
-        "staffbench staffbench"
-        "table table";
+        "scatterplot scatterplot"
+        "pcp pcp";
       gap: var(--gap);
       align-items: start;
     }
@@ -167,12 +115,9 @@
     #view-calendar{ grid-area: calendar; }
     #view-timeseries{ grid-area: timeseries; }
     #view-events{ grid-area: events; }
-    #view-staffbench{ grid-area: staffbench; }
-    #view-table{ grid-area: table; }
+    #view-scatterplot{ grid-area: scatterplot; }
+    #view-pcp{ grid-area: pcp; }
 
-    /* ---------------------------
-       PANELS (tight padding, less chrome)
-       --------------------------- */
     .panel{
       background: var(--card);
       border: 1px solid var(--border);
@@ -220,7 +165,6 @@
       white-space: nowrap;
     }
 
-    /* Controls */
     .btn-group{
       display:flex;
       gap: 6px;
@@ -252,84 +196,12 @@
       border: 1px solid rgba(17,24,39,0.08);
     }
 
-    /* ---- Selection summary row (small, under calendar header) ---- */
-    .summary-row{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px dashed rgba(229,231,235,0.95);
-    }
-    .summary-left{
-      font-size: 12px;
-      color: var(--muted);
-      display:flex;
-      align-items:center;
-      flex-wrap: wrap;
-      gap: 8px;
-      line-height: 1.15rem;
-    }
-    .summary-pill{
-      display:inline-flex;
-      align-items:center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(229,231,235,0.95);
-      background: #fff;
-      color: var(--ink);
-      box-shadow: 0 1px 4px rgba(17,24,39,0.05);
-      font-weight: 800;
-      font-size: 12px;
-    }
-    .summary-pill .k{
-      color: var(--muted);
-      font-weight: 900;
-    }
-
-    /* Sensible working heights */
     #view-calendar{ min-height: 280px; }
     #view-timeseries{ min-height: 360px; }
     #view-events{ min-height: 360px; }
-    #view-staffbench{ min-height: 520px; }
-    #view-table{ min-height: 240px; }
+    #view-scatterplot{ min-height: 500px; }
+    #view-pcp{ min-height: 500px; }
 
-    /* Staff bench: enclosed station + light subpanels */
-    .stack{
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-    }
-
-    .subpanel{
-      border: 1px solid rgba(229,231,235,0.70);
-      border-radius: 12px;
-      padding: 10px 10px 8px 10px;
-      background: #ffffff;
-    }
-
-    .subpanel-title{
-      font-size: 12px;
-      font-weight: 900;
-      margin: 0 0 4px 0;
-      color: var(--ink);
-      letter-spacing: -0.01em;
-    }
-
-    .subpanel-hint{
-      font-size: 12px;
-      color: var(--muted);
-      margin: 0 0 6px 0;
-    }
-
-    #view-staffing, #view-scatter{
-      width: 100%;
-      min-height: 220px;
-    }
-
-    /* Tooltip */
     .chart-tooltip{
       position: absolute;
       background: rgba(255,255,255,0.97);
@@ -344,7 +216,6 @@
       z-index: 5000;
     }
 
-    /* Responsive: collapse to 1 column */
     @media (max-width: 1050px){
       header{
         flex-direction: column;
@@ -354,21 +225,15 @@
       .header-right{
         justify-content: space-between;
       }
-      .filters{
-        justify-content:flex-start;
-        max-width: none;
-      }
       .grid{
         grid-template-columns: 1fr;
         grid-template-areas:
           "calendar"
           "timeseries"
           "events"
-          "staffbench"
-          "table";
+          "scatterplot"
+          "pcp";
       }
-      #view-calendar{ min-height: 260px; }
-      #view-timeseries, #view-events{ min-height: 330px; }
     }
   </style>
 </head>
@@ -376,7 +241,7 @@
 <body>
   <div class="dashboard">
 
-    <!-- Sticky global header -->
+    <!-- STICKY HEADER -->
     <header>
       <div class="header-left">
         <h1>Hospital Risk Explorer</h1>
@@ -384,19 +249,20 @@
       </div>
 
       <div class="header-right">
-        <div class="filters" id="active-filters"></div>
         <button class="btn-reset" onclick="window.resetState()">Reset All</button>
       </div>
     </header>
 
-    <!-- CALENDAR -->
-    <div class="panel" id="view-calendar">
+    <!-- GRID -->
+    <div class="grid">
+
+      <!-- TASK 1: CALENDAR -->
+      <div class="panel" id="view-calendar">
         <div class="panel-header">
           <div class="panel-header-left">
-            <div class="panel-title">Annual Risk Overview</div>
+            <div class="panel-title">1. Annual Risk Overview</div>
             <div class="panel-subtitle">Central context: click week to drive all views</div>
           </div>
-
           <div class="btn-group" id="metric-controls">
             <button class="btn active" onclick="setMetric('refusals')">Refusals</button>
             <button class="btn" onclick="setMetric('morale')">Morale</button>
@@ -404,83 +270,54 @@
             <button class="btn" onclick="setMetric('satisfaction')">Satisfaction</button>
           </div>
         </div>
-
-        <!-- SVG injected by view-calendar.js -->
-
-        <!-- small selection summary (high signal, low chrome) -->
-        <div class="summary-row" id="selection-summary" aria-hidden="true">
-          <div class="summary-left" id="summary-left">
-            <!-- filled by JS -->
-          </div>
-        </div>
       </div>
 
-    <!-- TIME SERIES -->
-    <div class="panel" id="view-timeseries">
+      <!-- TASK 1: TIME SERIES -->
+      <div class="panel" id="view-timeseries">
         <div class="panel-header">
           <div class="panel-header-left">
-            <div class="panel-title">Time Series Focus</div>
+            <div class="panel-title">2. Time Series Focus</div>
             <div class="panel-subtitle">Brush range + click week for details</div>
           </div>
-          <div class="hint">
-            <strong>Scroll</strong> zoom • <strong>Drag</strong> brush • <strong>Click</strong> select week
-          </div>
+          <div class="hint"><strong>Scroll</strong> zoom • <strong>Drag</strong> brush • <strong>Click</strong> select</div>
         </div>
-        <!-- SVG injected by view-timeseries.js -->
       </div>
 
-    <!-- EVENT IMPACT -->
-    <div class="panel" id="view-events">
+      <!-- TASK 2: EVENT IMPACT -->
+      <div class="panel" id="view-events">
         <div class="panel-header">
           <div class="panel-header-left">
-            <div class="panel-title">Event Impact</div>
-            <div class="panel-subtitle">Distribution shifts inside the selected time window</div>
+            <div class="panel-title">3. Event Impact</div>
+            <div class="panel-subtitle">Distribution shifts in selected time window</div>
           </div>
-          <div class="hint">
-            <strong>Click</strong> event filter • <strong>Alt-click</strong> clear
-          </div>
+          <div class="hint"><strong>Click</strong> event filter • <strong>Alt-click</strong> clear</div>
         </div>
-        <!-- SVG injected by view-event-impact.js -->
       </div>
 
-    <!-- TABLE -->
-    <div class="panel" id="view-table">
+      <!-- TASK 3: SCATTERPLOT (NEW) -->
+      <div class="panel" id="view-scatterplot">
         <div class="panel-header">
-            <span class="panel-title">4. Week Lookup Table</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> row to select • <strong>Click headers</strong> to sort
-            </span>
-        </div>
-
-        <div class="stack">
-          <div class="subpanel">
-            <div class="subpanel-title">Staffing Difference Explorer</div>
-            <div class="subpanel-hint">Click service • Toggle Absolute/Delta</div>
-            <div id="view-staffing"></div>
+          <div class="panel-header-left">
+            <div class="panel-title">4. Scatterplot Explorer</div>
+            <div class="panel-subtitle">Staff Composition vs Performance</div>
           </div>
-
-        <!-- STAFFING (Person C / Task 3) -->
-    <div class="panel" id="view-staffing">
-        <div class="panel-header">
-            <span class="panel-title">5. Staffing Difference Explorer</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> service to select • <strong>Toggle</strong> Absolute/Delta
-            </span>
+          <div class="hint"><strong>Drag</strong> to select points • <strong>Hover</strong> for details</div>
         </div>
-    </div>
+      </div>
 
-    <!-- SCATTER (Person C / Task 4) -->
-    <div class="panel" id="view-scatter">
+      <!-- TASK 5: PARALLEL COORDINATE PLOT (NEW) -->
+      <div class="panel" id="view-pcp">
         <div class="panel-header">
-            <span class="panel-title">6. Staff Composition vs Outcome (Scatter)</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Brush</strong> to set week range • <strong>Toggle</strong> Stress-only
-            </span>
+          <div class="panel-header-left">
+            <div class="panel-title">5. Parallel Coordinate Plot</div>
+            <div class="panel-subtitle">Multivariate Analysis across 5 dimensions</div>
+          </div>
+          <div class="hint"><strong>Drag</strong> on axis to filter • <strong>Hover</strong> for tooltip</div>
         </div>
-        <!-- HTML table injected by view-table.js -->
       </div>
 
     </div>
+
   </div>
 
   <div class="chart-tooltip"></div>
@@ -488,13 +325,11 @@
   <script type="module" src="./main.js"></script>
 
   <script>
-    // Metric controls (existing behavior)
     function setMetric(m) {
       document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
       event.target.classList.add('active');
       window.dispatch({ type: "SET_METRIC", value: m });
     }
-    
-</script>
+  </script>
 </body>
 </html>

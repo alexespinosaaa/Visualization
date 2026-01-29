@@ -113,13 +113,33 @@ async function init() {
   try {
     console.log("📡 Loading CSV files...");
     
-    const [servicesRows, staffScheduleRows, staffRows] = await Promise.all([
-      d3.csv(SERVICES_CSV),
-      d3.csv(STAFF_SCHEDULE_CSV),
-      d3.csv(STAFF_CSV).catch(() => [])
-    ]);
+    const servicesRows = await d3.csv(SERVICES_CSV).catch(err => {
+      console.error("❌ Failed to load services_weekly.csv:", err);
+      return [];
+    });
 
-    console.log("✅ CSVs loaded successfully");
+    const staffScheduleRows = await d3.csv(STAFF_SCHEDULE_CSV).catch(err => {
+      console.error("❌ Failed to load staff_schedule.csv:", err);
+      return [];
+    });
+
+    const staffRows = await d3.csv(STAFF_CSV).catch(err => {
+      console.error("⚠️ staff.csv optional, skipping:", err);
+      return [];
+    });
+
+    console.log("✅ CSVs loaded:");
+    console.log("   Services:", servicesRows.length, "rows");
+    console.log("   Staff Schedule:", staffScheduleRows.length, "rows");
+    console.log("   Staff:", staffRows.length, "rows");
+
+    if (servicesRows.length === 0) {
+      throw new Error("services_weekly.csv is empty or failed to load");
+    }
+
+    if (staffScheduleRows.length === 0) {
+      throw new Error("staff_schedule.csv is empty or failed to load");
+    }
 
     // ✅ NEW: Single unified processor
     const serviceWeeklyData = processAllData(
@@ -162,8 +182,12 @@ async function init() {
     console.log("✅ Initialization complete!");
 
   } catch (error) {
-    console.error("❌ Error:", error);
-    document.body.innerHTML += `<h3 style="color:red">Error loading data. ${error.message}</h3>`;
+    console.error("❌ Error during initialization:", error);
+    document.body.innerHTML += `
+      <h3 style="color:red">
+        Error loading data: ${error.message}<br>
+        <small>Check console (F12) for details</small>
+      </h3>`;
   }
 }
 
