@@ -4,22 +4,18 @@ import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 /**
  * Task 3 — Staffing Difference Explorer (Absolute + Delta)
  *
- * Data expected: data.serviceWeeklyStaff (from data_processor_C.js)
- * Required fields: week, service, eventType, staffPresent (0/1), plus metric fields
+ * Adds:
+ * - Better layout (more height/bottom margin)
+ * - Horizontal y gridlines
+ * - BrushY (value-range brush) that dims services outside the brushed metric range
  *
- * Interactions:
- * - Toggle Absolute/Delta (local UI; no hidden selection state, only UI mode)
- * - Click service -> dispatch(SET_SELECTED_SERVICE, service)
- * - Tooltip on marks
- *
- * Respects state:
- * - timeRange, selectedEventType, selectedService (highlight), metric
+ * Brush is local UI state (does not dispatch) so it won't interfere with other views.
  */
 
 export function init(container, data, state, dispatch) {
   const el = d3.select(container);
 
-  // Preserve panel header if present (same trick as table)
+  // Preserve panel header if present
   const headerNode = el.select(".panel-header").node();
   el.selectAll("*").remove();
   if (headerNode) el.node().appendChild(headerNode);
@@ -43,27 +39,16 @@ export function init(container, data, state, dispatch) {
 
   const btnAbs = btnWrap.append("button")
     .attr("class", "btn active")
-    .text("Absolute")
-    .on("click", () => {
-      container.refs.mode = "ABS";
-      btnAbs.classed("active", true);
-      btnDel.classed("active", false);
-      update(container, data, container.refs.stateSnapshot);
-    });
+    .text("Absolute");
 
   const btnDel = btnWrap.append("button")
     .attr("class", "btn")
-    .text("Delta")
-    .on("click", () => {
-      container.refs.mode = "DELTA";
-      btnAbs.classed("active", false);
-      btnDel.classed("active", true);
-      update(container, data, container.refs.stateSnapshot);
-    });
+    .text("Delta");
 
-  const margin = { top: 10, right: 20, bottom: 40, left: 60 };
+  // Layout (fix chopped labels)
+  const margin = { top: 10, right: 20, bottom: 75, left: 60 };
   const width = 1100 - margin.left - margin.right;
-  const height = 280 - margin.top - margin.bottom;
+  const height = 360 - margin.top - margin.bottom;
 
   const svg = el.append("svg")
     .attr("width", "100%")
@@ -78,8 +63,9 @@ export function init(container, data, state, dispatch) {
 
   root.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
   root.append("g").attr("class", "y-axis");
+  root.append("g").attr("class", "y-grid");
 
-  // Legend for present/absent in ABS mode
+  // Legend
   const legend = el.append("div")
     .style("display", "flex")
     .style("gap", "14px")
@@ -91,18 +77,21 @@ export function init(container, data, state, dispatch) {
   legend.html(`
     <span><span style="display:inline-block;width:10px;height:10px;background:#2ecc71;border:1px solid #2d3436;margin-right:6px;"></span>Staff present</span>
     <span><span style="display:inline-block;width:10px;height:10px;background:#d63031;border:1px solid #2d3436;margin-right:6px;"></span>Staff absent</span>
+    <span style="margin-left:10px;color:#888;">Drag vertically to brush value range</span>
   `);
 
   const chart = root.append("g").attr("class", "chart");
+  const overlay = root.append("g").attr("class", "overlay"); // brush layer on top
 
   const tooltip = d3.select("body").select(".chart-tooltip");
 
-  // store refs
+  // Store refs once (single source)
   container.refs = {
     dispatch,
     svg,
     root,
     chart,
+    overlay,
     x,
     y,
     width,
@@ -110,13 +99,54 @@ export function init(container, data, state, dispatch) {
     margin,
     tooltip,
     mode: "ABS",
-    stateSnapshot: state
+    stateSnapshot: state,
+    staffValueRange: null,
+    brushG: null,
+    brushY: null
   };
+
+  // Buttons (use refs safely)
+  btnAbs.on("click", () => {
+    container.refs.mode = "ABS";
+    btnAbs.classed("active", true);
+    btnDel.classed("active", false);
+    update(container, data, container.refs.stateSnapshot);
+  });
+
+  btnDel.on("click", () => {
+    container.refs.mode = "DELTA";
+    btnAbs.classed("active", false);
+    btnDel.classed("active", true);
+    update(container, data, container.refs.stateSnapshot);
+  });
+
+  // BrushY (create once; use current y-scale inside handler)
+  const brushY = d3.brushY()
+    .extent([[0, 0], [width, height]])
+    .on("end", (event) => {
+      const refs = container.refs;
+      if (!event.selection) {
+        refs.staffValueRange = null;
+      } else {
+        const [py0, py1] = event.selection;      // pixels top->bottom
+        const v0 = refs.y.invert(py1);           // lower value
+        const v1 = refs.y.invert(py0);           // higher value
+        refs.staffValueRange = [Math.min(v0, v1), Math.max(v0, v1)];
+      }
+      update(container, data, refs.stateSnapshot);
+    });
+
+  const brushG = overlay.append("g").attr("class", "brush-y");
+  brushG.call(brushY);
+
+  container.refs.brushY = brushY;
+  container.refs.brushG = brushG;
 }
 
 export function update(container, data, state) {
   const refs = container.refs;
-  refs.stateSnapshot = state; // for button callbacks
+  refs.stateSnapshot = state;
+
   const { chart, root, x, y, width, height, tooltip, dispatch } = refs;
 
   const metric = state.metric || "refusals";
@@ -127,12 +157,14 @@ export function update(container, data, state) {
     satisfaction: "Patient Satisfaction"
   }[metric] || metric;
 
-  // Subtitle
+  // Subtitle (include brush status)
   const subtitle = d3.select(container).select(".staffing-subtitle");
+  const br = refs.staffValueRange;
   subtitle.text(
     `${metricLabel} • compare weeks by staffing presence` +
     (state.timeRange ? ` • weeks ${state.timeRange[0]}–${state.timeRange[1]}` : "") +
-    (state.selectedEventType ? ` • event=${state.selectedEventType}` : "")
+    (state.selectedEventType ? ` • event=${state.selectedEventType}` : "") +
+    (br ? ` • brushed: ${br[0].toFixed(1)}–${br[1].toFixed(1)}` : "")
   );
 
   const rows = Array.isArray(data.serviceWeeklyStaff) ? data.serviceWeeklyStaff : [];
@@ -141,10 +173,11 @@ export function update(container, data, state) {
   if (!rows.length) {
     root.select(".x-axis").call(d3.axisBottom(d3.scaleBand().range([0, width])));
     root.select(".y-axis").call(d3.axisLeft(d3.scaleLinear().range([height, 0])));
+    root.select(".y-grid").selectAll("*").remove();
     return;
   }
 
-  // Filter by state
+  // Filter by global state
   const filtered = rows.filter(d => {
     const w = +d.week;
     if (state.timeRange && (w < state.timeRange[0] || w > state.timeRange[1])) return false;
@@ -157,27 +190,25 @@ export function update(container, data, state) {
   if (!services.length) return;
 
   // Prepare per-service stats
+  const stat = (arr) => {
+    const a = arr.slice().sort(d3.ascending);
+    return {
+      n: a.length,
+      mean: a.length ? d3.mean(a) : NaN,
+      median: a.length ? d3.median(a) : NaN,
+      q1: a.length ? d3.quantile(a, 0.25) : NaN,
+      q3: a.length ? d3.quantile(a, 0.75) : NaN,
+      min: a.length ? a[0] : NaN,
+      max: a.length ? a[a.length - 1] : NaN
+    };
+  };
+
   const perService = services.map(svc => {
     const svcRows = filtered.filter(d => d.service === svc);
     const present = svcRows.filter(d => +d.staffPresent === 1).map(d => +d[metric]);
     const absent = svcRows.filter(d => +d.staffPresent === 0).map(d => +d[metric]);
-
-    const stat = (arr) => {
-      const a = arr.slice().sort(d3.ascending);
-      return {
-        n: a.length,
-        mean: a.length ? d3.mean(a) : NaN,
-        median: a.length ? d3.median(a) : NaN,
-        q1: a.length ? d3.quantile(a, 0.25) : NaN,
-        q3: a.length ? d3.quantile(a, 0.75) : NaN,
-        min: a.length ? a[0] : NaN,
-        max: a.length ? a[a.length - 1] : NaN
-      };
-    };
-
     const p = stat(present);
     const a = stat(absent);
-
     return {
       service: svc,
       present: p,
@@ -187,13 +218,28 @@ export function update(container, data, state) {
     };
   });
 
-  // Scales
   x.domain(services);
+
+  // helper: does service distribution overlap brush range?
+  function overlapsRange(stats, range) {
+    if (!range) return true;
+    if (!stats || !Number.isFinite(stats.min) || !Number.isFinite(stats.max)) return false;
+    const [r0, r1] = range;
+    return !(stats.max < r0 || stats.min > r1);
+  }
 
   if (refs.mode === "ABS") {
     const allVals = filtered.map(d => +d[metric]).filter(Number.isFinite);
     const ext = d3.extent(allVals);
     y.domain([ext[0], ext[1]]).nice();
+
+    // y grid
+    root.select(".y-grid")
+      .call(d3.axisLeft(y).ticks(5).tickSize(-width).tickFormat(""))
+      .selectAll("line")
+      .attr("stroke", "#ecf0f1")
+      .attr("stroke-width", 1);
+    root.select(".y-grid").select(".domain").remove();
 
     root.select(".x-axis")
       .call(d3.axisBottom(x).tickFormat(s => prettyService(s)))
@@ -206,8 +252,11 @@ export function update(container, data, state) {
       .call(d3.axisLeft(y).ticks(5))
       .selectAll("text").style("font-size", "11px");
 
-    // Draw 2 boxplots per service (present & absent)
     const boxW = x.bandwidth();
+    const cxA = boxW * 0.33;
+    const cxP = boxW * 0.67;
+    const bw = Math.min(16, boxW * 0.22);
+
     const inner = chart.selectAll("g.service")
       .data(perService, d => d.service)
       .join("g")
@@ -216,17 +265,10 @@ export function update(container, data, state) {
       .style("cursor", "pointer")
       .on("click", (e, d) => dispatch({ type: "SET_SELECTED_SERVICE", value: d.service }));
 
-    // Positions
-    const cxA = boxW * 0.33;
-    const cxP = boxW * 0.67;
-    const bw = Math.min(16, boxW * 0.22);
-
-    // helper to draw a box
     function drawBox(g, stats, cx, color, label) {
       const has = stats && stats.n >= 2 && Number.isFinite(stats.q1) && Number.isFinite(stats.q3);
       const group = g.append("g").attr("transform", `translate(${cx},0)`);
 
-      // whisker
       group.append("line")
         .attr("x1", 0).attr("x2", 0)
         .attr("y1", has ? y(stats.min) : y.range()[0])
@@ -235,7 +277,6 @@ export function update(container, data, state) {
         .attr("stroke-width", 2)
         .attr("opacity", has ? 1 : 0.15);
 
-      // box
       group.append("rect")
         .attr("x", -bw / 2)
         .attr("width", bw)
@@ -246,7 +287,6 @@ export function update(container, data, state) {
         .attr("stroke", color)
         .attr("stroke-width", 2);
 
-      // median
       group.append("line")
         .attr("x1", -bw / 2).attr("x2", bw / 2)
         .attr("y1", has ? y(stats.median) : y.range()[0])
@@ -255,7 +295,7 @@ export function update(container, data, state) {
         .attr("stroke-width", 3)
         .attr("opacity", has ? 1 : 0.15);
 
-      // click/hover target
+      // hover target
       group.append("rect")
         .attr("x", -bw / 2 - 6)
         .attr("width", bw + 12)
@@ -268,7 +308,8 @@ export function update(container, data, state) {
               <strong>${prettyService(g.datum().service)}</strong> — ${label}<br>
               <span style="color:#666">N weeks:</span> ${stats.n || 0}<br>
               <span style="color:#666">Mean:</span> ${fmt(stats.mean, 2)}<br>
-              <span style="color:#666">Median:</span> ${fmt(stats.median, 2)}
+              <span style="color:#666">Median:</span> ${fmt(stats.median, 2)}<br>
+              <span style="color:#666">Min–Max:</span> ${fmt(stats.min, 2)} – ${fmt(stats.max, 2)}
             `)
             .style("left", (event.pageX + 10) + "px")
             .style("top", (event.pageY - 20) + "px");
@@ -283,12 +324,19 @@ export function update(container, data, state) {
 
     inner.each(function(d) {
       const g = d3.select(this);
-      // dim non-selected service
-      const dim = state.selectedService && d.service !== state.selectedService;
-      g.style("opacity", dim ? 0.35 : 1);
-
       drawBox(g, d.absent, cxA, "#d63031", "Staff absent");
       drawBox(g, d.present, cxP, "#2ecc71", "Staff present");
+    });
+
+    // Apply dimming from BOTH: selectedService and brush range
+    const range = refs.staffValueRange;
+    chart.selectAll("g.service").style("opacity", d => {
+      const byService = state.selectedService && d.service !== state.selectedService;
+      const byBrush = range ? !(overlapsRange(d.present, range) || overlapsRange(d.absent, range)) : false;
+      if (byService && byBrush) return 0.12;
+      if (byService) return 0.35;
+      if (byBrush) return 0.15;
+      return 1;
     });
 
   } else {
@@ -300,9 +348,18 @@ export function update(container, data, state) {
     if (!deltas.length) return;
 
     x.domain(deltas.map(d => d.service));
+
     const ext = d3.extent(deltas, d => d.delta);
     const pad = (ext[1] - ext[0]) * 0.15 || 1;
     y.domain([ext[0] - pad, ext[1] + pad]).nice();
+
+    // y grid
+    root.select(".y-grid")
+      .call(d3.axisLeft(y).ticks(5).tickSize(-width).tickFormat(""))
+      .selectAll("line")
+      .attr("stroke", "#ecf0f1")
+      .attr("stroke-width", 1);
+    root.select(".y-grid").select(".domain").remove();
 
     root.select(".x-axis")
       .call(d3.axisBottom(x).tickFormat(s => prettyService(s)))
@@ -315,7 +372,6 @@ export function update(container, data, state) {
       .call(d3.axisLeft(y).ticks(5))
       .selectAll("text").style("font-size", "11px");
 
-    // zero line
     chart.append("line")
       .attr("x1", 0).attr("x2", width)
       .attr("y1", y(0)).attr("y2", y(0))
@@ -329,7 +385,6 @@ export function update(container, data, state) {
       .attr("class", "delta")
       .attr("transform", d => `translate(${x(d.service) + x.bandwidth() / 2},0)`)
       .style("cursor", "pointer")
-      .style("opacity", d => state.selectedService && d.service !== state.selectedService ? 0.35 : 1)
       .on("click", (e, d) => dispatch({ type: "SET_SELECTED_SERVICE", value: d.service }))
       .on("mouseover", (event, d) => {
         tooltip.style("opacity", 1)
@@ -348,6 +403,13 @@ export function update(container, data, state) {
       })
       .on("mouseout", () => tooltip.style("opacity", 0));
 
+    g.append("line")
+      .attr("x1", 0).attr("x2", 0)
+      .attr("y1", y(0))
+      .attr("y2", d => y(d.delta))
+      .attr("stroke", "#b2bec3")
+      .attr("stroke-width", 2);
+
     g.append("circle")
       .attr("cy", d => y(d.delta))
       .attr("r", 6)
@@ -355,13 +417,16 @@ export function update(container, data, state) {
       .attr("stroke", "#2d3436")
       .attr("stroke-width", 1.2);
 
-    // small stem line
-    g.append("line")
-      .attr("x1", 0).attr("x2", 0)
-      .attr("y1", y(0))
-      .attr("y2", d => y(d.delta))
-      .attr("stroke", "#b2bec3")
-      .attr("stroke-width", 2);
+    // Apply dimming from BOTH: selectedService and brush range
+    const range = refs.staffValueRange;
+    chart.selectAll("g.delta").style("opacity", d => {
+      const byService = state.selectedService && d.service !== state.selectedService;
+      const byBrush = range ? !(d.delta >= range[0] && d.delta <= range[1]) : false;
+      if (byService && byBrush) return 0.12;
+      if (byService) return 0.35;
+      if (byBrush) return 0.15;
+      return 1;
+    });
   }
 }
 
