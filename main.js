@@ -38,9 +38,10 @@ let state = {
 
 
 // ---- CSV PATHS ----
-const SERVICES_CSV = "../JBI100%20Data%20(2025-2026)/Hospital%20Beds%20Management/services_weekly.csv";
-const STAFF_SCHEDULE_CSV = "../JBI100%20Data%20(2025-2026)/Hospital%20Beds%20Management/staff_schedule.csv";
-const STAFF_CSV = "../JBI100%20Data%20(2025-2026)/Hospital%20Beds%20Management/staff.csv";
+const SERVICES_CSV = "./JBI100 Data (2025-2026)/Hospital Beds Management/services_weekly.csv";
+const STAFF_SCHEDULE_CSV = "./JBI100 Data (2025-2026)/Hospital Beds Management/staff_schedule.csv";
+const STAFF_CSV = "./JBI100 Data (2025-2026)/Hospital Beds Management/staff.csv";
+
 
 
 // ---- GLOBAL DATA ----
