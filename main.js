@@ -1,132 +1,196 @@
-// main.js
+// main.js - UPDATED for Option A
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
-import { processDataForTask1 } from "./data_processor_A.js";
-import { processDataForTask2and5 } from "./data_processor_B.js";
-import { processDataForTask3and4 } from "./data_processor_C.js";
+// ✅ NEW: Import unified processor
+import { 
+  processAllData, 
+  getTask1Data, 
+  getTask2Data, 
+  getTask3Data, 
+  getTask5Data 
+} from "./data_processor_unified.js";
 
+// ✅ KEEP: Existing view imports
 import * as CalendarView from "./view-calendar.js";
 import * as TimeSeriesView from "./view-timeseries.js";
 import * as EventImpactView from "./view-event-impact.js";
-import * as TableView from "./view-table.js";
 
-// Person C
-import * as StaffingView from "./view-staffing.js";
-import * as ScatterView from "./view-scatter.js";
+// ❌ DELETE: Old views (commented out for now)
+// import * as TableView from "./view-table.js";
+// import * as StaffingView from "./view-staffing.js";
+// import * as ScatterView from "./view-scatter.js";
 
-// ---- GLOBAL STATE (single source of truth) ----
+// 🆕 NEW: Import new views
+import * as PCPView from "./view-pcp.js";
+import * as ScatterplotView from "./view-scatterplot-linked.js";
+
+
+// ---- GLOBAL STATE ----
 let state = {
   selectedWeek: null,
-  timeRange: null,
-  zoomTransform: null,
-  metric: "refusals",
-  selectedEventType: null,
   selectedService: null,
-  stressOnly: false
+  selectedEventType: null,
+  timeRange: null,
+  metric: "staff_morale",
+  stressOnly: false,
+  zoomTransform: null
 };
 
-// ---- CSV PATHS (edit to your folder) ----
-const SERVICES_CSV = "../JBI100%20Data%20(2025-2026)/Hospital%20Beds%20Management/services_weekly.csv";
-const STAFF_SCHEDULE_CSV = "../JBI100%20Data%20(2025-2026)/Hospital%20Beds%20Management/staff_schedule.csv";
+
+// ---- CSV PATHS ----
+const SERVICES_CSV = "../../Hospital Beds Management/services_weekly.csv";
+const STAFF_SCHEDULE_CSV = "../../Hospital Beds Management/staff_schedule.csv";
+const STAFF_CSV = "../../Hospital Beds Management/staff.csv";
+
 
 // ---- GLOBAL DATA ----
 let globalData = {};
 
-// ---- DISPATCHER (single) ----
+
+// ---- DISPATCHER ----
 function dispatch(action) {
   switch (action.type) {
     case "SET_SELECTED_WEEK":
       state.selectedWeek = (state.selectedWeek === action.value) ? null : action.value;
       break;
 
-    case "SET_TIME_RANGE":
-      state.timeRange = action.value;
-      break;
-
-    case "SET_ZOOM":
-      state.zoomTransform = action.value;
-      break;
-
-    case "SET_METRIC":
-      state.metric = action.value;
+    case "SET_SELECTED_SERVICE":
+      state.selectedService = (state.selectedService === action.value) ? null : action.value;
       break;
 
     case "SET_SELECTED_EVENT_TYPE":
       state.selectedEventType = (state.selectedEventType === action.value) ? null : action.value;
       break;
 
-    case "SET_SELECTED_SERVICE":
-      state.selectedService = (state.selectedService === action.value) ? null : action.value;
+    case "SET_TIME_RANGE":
+      state.timeRange = action.value;
+      break;
+
+    case "SET_METRIC":
+      state.metric = action.value;
       break;
 
     case "SET_STRESS_ONLY":
       state.stressOnly = action.value;
       break;
 
+    case "SET_ZOOM":
+      state.zoomTransform = action.value;
+      break;
+
     case "RESET":
       state.selectedWeek = null;
-      state.timeRange = null;
-      state.zoomTransform = null;
-      state.selectedEventType = null;
       state.selectedService = null;
-      state.metric = "refusals";
+      state.selectedEventType = null;
+      state.timeRange = null;
+      state.metric = "staff_morale";
       state.stressOnly = false;
+      state.zoomTransform = null;
       break;
   }
 
   updateAllViews();
 }
 
-function updateAllViews() {
-  CalendarView.update(document.getElementById("view-calendar"), globalData, state);
-  TimeSeriesView.update(document.getElementById("view-timeseries"), globalData, state);
-  EventImpactView.update(document.getElementById("view-events"), globalData, state);
-  TableView.update(document.getElementById("view-table"), globalData, state);
 
-  // Person C (only if containers exist)
-  const staffingEl = document.getElementById("view-staffing");
-  const scatterEl = document.getElementById("view-scatter");
-  if (staffingEl) StaffingView.update(staffingEl, globalData, state);
-  if (scatterEl) ScatterView.update(scatterEl, globalData, state);
+function updateAllViews() {
+  CalendarView.update(document.getElementById("view-calendar"), globalData, state, dispatch);
+  TimeSeriesView.update(document.getElementById("view-timeseries"), globalData, state, dispatch);
+  EventImpactView.update(document.getElementById("view-events"), globalData, state, dispatch);
+
+  // 🆕 NEW: Task 5 (PCP)
+  const pcpEl = document.getElementById("view-pcp");
+  if (pcpEl) PCPView.update(pcpEl, globalData, state, dispatch);
+
+  // 🆕 NEW: Task 3 (Scatterplot)
+  const scatterEl = document.getElementById("view-scatterplot");
+  if (scatterEl) ScatterplotView.update(scatterEl, globalData, state, dispatch);
 }
+
 
 // ---- INITIALIZATION ----
 async function init() {
   try {
-    const [servicesRows, staffScheduleRows] = await Promise.all([
-      d3.csv(SERVICES_CSV),
-      d3.csv(STAFF_SCHEDULE_CSV)
-    ]);
+    console.log("📡 Loading CSV files...");
+    
+    const servicesRows = await d3.csv(SERVICES_CSV).catch(err => {
+      console.error("❌ Failed to load services_weekly.csv:", err);
+      return [];
+    });
 
+    const staffScheduleRows = await d3.csv(STAFF_SCHEDULE_CSV).catch(err => {
+      console.error("❌ Failed to load staff_schedule.csv:", err);
+      return [];
+    });
+
+    const staffRows = await d3.csv(STAFF_CSV).catch(err => {
+      console.error("⚠️ staff.csv optional, skipping:", err);
+      return [];
+    });
+
+    console.log("✅ CSVs loaded:");
+    console.log("   Services:", servicesRows.length, "rows");
+    console.log("   Staff Schedule:", staffScheduleRows.length, "rows");
+    console.log("   Staff:", staffRows.length, "rows");
+
+    if (servicesRows.length === 0) {
+      throw new Error("services_weekly.csv is empty or failed to load");
+    }
+
+    if (staffScheduleRows.length === 0) {
+      throw new Error("staff_schedule.csv is empty or failed to load");
+    }
+
+    // ✅ NEW: Single unified processor
+    const serviceWeeklyData = processAllData(
+      servicesRows,
+      staffScheduleRows,
+      staffRows
+    );
+
+    // ✅ NEW: Get task-specific data
     globalData = {
-      hospitalWeekly: processDataForTask1(servicesRows),
-      serviceWeekly: processDataForTask2and5(servicesRows),
-      serviceWeeklyStaff: processDataForTask3and4(servicesRows, staffScheduleRows, {
-        staffPresenceThreshold: 0.8
-      })
+      serviceWeeklyData: serviceWeeklyData,
+      task1Data: getTask1Data(serviceWeeklyData),
+      task2Data: getTask2Data(serviceWeeklyData, state.metric),
+      task3Data: getTask3Data(serviceWeeklyData),
+      task5Data: getTask5Data(serviceWeeklyData)
     };
 
+    console.log("✅ Data processed:", globalData.serviceWeeklyData.length, "records");
+
+    // Initialize views
     CalendarView.init(document.getElementById("view-calendar"), globalData, state, dispatch);
     TimeSeriesView.init(document.getElementById("view-timeseries"), globalData, state, dispatch);
     EventImpactView.init(document.getElementById("view-events"), globalData, state, dispatch);
-    TableView.init(document.getElementById("view-table"), globalData, state, dispatch);
 
-    // Person C init (only if containers exist)
-    const staffingEl = document.getElementById("view-staffing");
-    const scatterEl = document.getElementById("view-scatter");
-    if (staffingEl) StaffingView.init(staffingEl, globalData, state, dispatch);
-    if (scatterEl) ScatterView.init(scatterEl, globalData, state, dispatch);
+    // 🆕 NEW: Initialize Task 5 (PCP)
+    const pcpEl = document.getElementById("view-pcp");
+    if (pcpEl) {
+      console.log("  - Task 5 (PCP) initializing...");
+      PCPView.init(pcpEl, globalData, state, dispatch);
+    }
+
+    // 🆕 NEW: Initialize Task 3 (Scatterplot)
+    const scatterEl = document.getElementById("view-scatterplot");
+    if (scatterEl) {
+      console.log("  - Task 3 (Scatterplot) initializing...");
+      ScatterplotView.init(scatterEl, globalData, state, dispatch);
+    }
 
     updateAllViews();
+    console.log("✅ Initialization complete!");
+
   } catch (error) {
-    console.error("Error loading data:", error);
+    console.error("❌ Error during initialization:", error);
     document.body.innerHTML += `
       <h3 style="color:red">
-        Error loading data.<br>
-        Ensure you are running the server from the 'VIS' folder.
+        Error loading data: ${error.message}<br>
+        <small>Check console (F12) for details</small>
       </h3>`;
   }
 }
+
 
 window.dispatch = dispatch;
 window.resetState = () => dispatch({ type: "RESET" });
