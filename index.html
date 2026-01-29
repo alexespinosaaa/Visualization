@@ -114,7 +114,7 @@
         <button class="btn btn-reset" onclick="window.resetState()">Reset All Filters</button>
     </header>
 
-    <!-- CALENDAR -->
+    <!-- TASK 1: CALENDAR -->
     <div class="panel" id="view-calendar">
         <div class="panel-header">
             <span class="panel-title">1. Annual Risk Overview (Calendar)</span>
@@ -127,7 +127,7 @@
         </div>
     </div>
 
-    <!-- TIME SERIES -->
+    <!-- TASK 1: TIME SERIES -->
     <div class="panel" id="view-timeseries">
         <div class="panel-header">
             <span class="panel-title">2. Detail Analysis & Controller</span>
@@ -137,7 +137,7 @@
         </div>
     </div>
 
-    <!-- EVENT IMPACT -->
+    <!-- TASK 2: EVENT IMPACT -->
     <div class="panel" id="view-events">
         <div class="panel-header">
             <span class="panel-title">3. Event Impact Distributions</span>
@@ -147,32 +147,22 @@
         </div>
     </div>
 
-    <!-- TABLE -->
-    <div class="panel" id="view-table">
+    <!-- TASK 3: SCATTERPLOT (NEW) -->
+    <div class="panel" id="view-scatterplot">
         <div class="panel-header">
-            <span class="panel-title">4. Week Lookup Table</span>
+            <span class="panel-title">4. Scatterplot Explorer: Staff Composition vs Performance</span>
             <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> row to select • <strong>Click headers</strong> to sort
+                <strong>Drag</strong> to select points • <strong>Hover</strong> for details • Colors = Event Type
             </span>
         </div>
     </div>
 
-        <!-- STAFFING (Person C / Task 3) -->
-    <div class="panel" id="view-staffing">
+    <!-- TASK 5: PARALLEL COORDINATE PLOT (NEW) -->
+    <div class="panel" id="view-pcp">
         <div class="panel-header">
-            <span class="panel-title">5. Staffing Difference Explorer</span>
+            <span class="panel-title">5. Parallel Coordinate Plot: Multivariate Analysis</span>
             <span style="font-size:12px; color:#888;">
-                <strong>Click</strong> service to select • <strong>Toggle</strong> Absolute/Delta
-            </span>
-        </div>
-    </div>
-
-    <!-- SCATTER (Person C / Task 4) -->
-    <div class="panel" id="view-scatter">
-        <div class="panel-header">
-            <span class="panel-title">6. Staff Composition vs Outcome (Scatter)</span>
-            <span style="font-size:12px; color:#888;">
-                <strong>Brush</strong> to set week range • <strong>Toggle</strong> Stress-only
+                <strong>Drag</strong> on any axis to filter • <strong>Hover</strong> for tooltip • Opacity = Stress Level
             </span>
         </div>
     </div>
@@ -189,7 +179,6 @@
         event.target.classList.add('active');
         window.dispatch({ type: "SET_METRIC", value: m });
     }
-    
 </script>
 </body>
 </html>
