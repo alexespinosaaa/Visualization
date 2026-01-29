@@ -157,6 +157,26 @@
         </div>
     </div>
 
+        <!-- STAFFING (Person C / Task 3) -->
+    <div class="panel" id="view-staffing">
+        <div class="panel-header">
+            <span class="panel-title">5. Staffing Difference Explorer</span>
+            <span style="font-size:12px; color:#888;">
+                <strong>Click</strong> service to select • <strong>Toggle</strong> Absolute/Delta
+            </span>
+        </div>
+    </div>
+
+    <!-- SCATTER (Person C / Task 4) -->
+    <div class="panel" id="view-scatter">
+        <div class="panel-header">
+            <span class="panel-title">6. Staff Composition vs Outcome (Scatter)</span>
+            <span style="font-size:12px; color:#888;">
+                <strong>Brush</strong> to set week range • <strong>Toggle</strong> Stress-only
+            </span>
+        </div>
+    </div>
+
 </div>
 
 <div class="chart-tooltip"></div>
@@ -169,6 +189,7 @@
         event.target.classList.add('active');
         window.dispatch({ type: "SET_METRIC", value: m });
     }
+    
 </script>
 </body>
 </html>
