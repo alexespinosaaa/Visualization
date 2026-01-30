@@ -1,19 +1,24 @@
 /**
  * TASK 3: Scatterplot Explorer - Staff Composition vs Performance
  *
- * CHANGES ADDED:
- * ✅ X-axis uses LINEAR scale (0–100)
- * ✅ Deterministic X-JITTER (stable per point)
- * ✅ Jitter is SLIGHTLY WIDER near extremes (near 0% and 100%) to reduce overplotting
- * ✅ “Clear brush” button inside the plot (top-right)
+ * NEW:
+ * ✅ Add dropdown to switch Y between:
+ *    - Staff Morale
+ *    - Patients Refused
+ *   (Task 4 lives inside Task 3 now)
  *
- * Other fixes kept:
- * - Stable selection IDs (not index)
- * - Brush layer behind points (hover works)
- * - Clear selection: click empty area (no-drag click), double-click, ESC, or button
- * - Singleton tooltip (no leaks)
- * - Selected points highlight ORANGE; unselected fade
- * - Robust pointer math via d3.pointer
+ * FIXES:
+ * ✅ Event categories are: donation, none, strike, flu
+ * ✅ Removed "Normal" label substitution (none stays "none")
+ * ✅ Added event normalization (case/whitespace safe)
+ *
+ * Existing features kept:
+ * - Linear X scale (0–100)
+ * - Deterministic jitter (wider near extremes)
+ * - Clear brush button + click empty + dblclick + ESC
+ * - Stable selection IDs
+ * - Brush behind points
+ * - Singleton tooltip
  */
 
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
@@ -21,7 +26,8 @@ import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 const EVENT_COLORS = {
   none: "#95a5a6",
   flu: "#e74c3c",
-  Other: "#f39c12",
+  strike: "#8e44ad",
+  donation: "#2ecc71",
 };
 
 const SERVICE_COLORS = {
@@ -32,6 +38,59 @@ const SERVICE_COLORS = {
 };
 
 const SELECT_COLOR = "#ff8c00";
+
+// --- Dropdown config (Task 4 under Task 3) ---
+const Y_OPTIONS = [
+  { key: "staff_morale", label: "Staff Morale" },
+  { key: "patients_refused", label: "Patients Refused" },
+];
+
+function normalizeEvent(raw) {
+  const e = String(raw ?? "").trim().toLowerCase();
+  if (!e) return "none";
+  if (e === "donation") return "donation";
+  if (e === "strike") return "strike";
+  if (e === "flu") return "flu";
+  if (e === "none" || e === "normal") return "none";
+  // unknowns fall back to "none" color
+  return e;
+}
+
+// Stable ID generator (IMPORTANT: do NOT depend on yMetric, so selection stays stable when switching Y)
+function pointId(d) {
+  const p = Number.isFinite(+d.pct_staff_present) ? (+d.pct_staff_present).toFixed(2) : "na";
+  const o = Number.isFinite(+d.occupancy) ? (+d.occupancy).toFixed(3) : "na";
+  const ev = normalizeEvent(d.event);
+  // include both fields so uniqueness is stable across dropdown
+  const m = Number.isFinite(+d.staff_morale) ? (+d.staff_morale).toFixed(0) : "na";
+  const r = Number.isFinite(+d.patients_refused) ? (+d.patients_refused).toFixed(0) : "na";
+  return `${d.week}__${d.service}__${ev}__${p}__${m}__${r}__${o}`;
+}
+
+// deterministic 0..1 hash
+function hash01(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967295;
+}
+
+// deterministic x jitter
+function xJitterPx(d) {
+  const xPct = +d.pct_staff_present;
+  const baseSpreadPx = 12;
+  const extraSpreadPx = 8;
+  const extremeBandPct = 8;
+
+  const distToEdge = Math.min(xPct, 100 - xPct);
+  const edgeProximity = Math.max(0, 1 - distToEdge / extremeBandPct);
+
+  const spread = baseSpreadPx + extraSpreadPx * edgeProximity;
+  const t = hash01(pointId(d)) - 0.5;
+  return t * spread;
+}
 
 export function init(svgElement, globalData, state, dispatch) {
   console.log("🎨 Initializing Task 3: Scatterplot Explorer");
@@ -45,6 +104,7 @@ export function init(svgElement, globalData, state, dispatch) {
     yScale: null,
     tooltipEl: null,
     keyHandlerAttached: false,
+    yMetric: "staff_morale", // ✅ default (Task 3)
   };
 
   _createScatterStructure(svgElement);
@@ -63,21 +123,63 @@ function _createScatterStructure(svgElement) {
     .style("display", "flex")
     .style("flex-direction", "column");
 
-  wrapper
+  // Controls (same style, but now includes dropdown)
+  const controls = wrapper
     .append("div")
     .attr("class", "scatter-controls")
     .style("padding", "15px 20px")
     .style("background-color", "#f8f9fa")
     .style("border-bottom", "1px solid #e0e0e0")
-    .html(`
-      <div>
-        <strong style="color: #2c3e50; font-size: 14px;">Task 3: Scatterplot Explorer</strong><br>
-        <span style="color: #7f8c8d; font-size: 12px;">
-          Drag to select points | Click empty area to clear | Double-click to clear | ESC to clear | Button to clear<br>
-          X: Staff Present (%) | Y: Staff Morale | Size: Refusals | Fill: Event | Stroke: Service
-        </span>
-      </div>
-    `);
+    .style("display", "flex")
+    .style("align-items", "center")
+    .style("justify-content", "space-between")
+    .style("gap", "16px");
+
+  const left = controls.append("div");
+
+  left.html(`
+    <div>
+      <strong style="color: #2c3e50; font-size: 14px;">Task 3: Scatterplot Explorer</strong><br>
+      <span style="color: #7f8c8d; font-size: 12px;">
+        Drag to select points | Click empty area to clear | Double-click to clear | ESC to clear | Button to clear<br>
+        X: Staff Present (%) | Y: (dropdown) | Size: Refusals | Fill: Event | Stroke: Service
+      </span>
+    </div>
+  `);
+
+  const right = controls
+    .append("div")
+    .style("display", "flex")
+    .style("align-items", "center")
+    .style("gap", "10px");
+
+  right
+    .append("span")
+    .style("font-size", "12px")
+    .style("color", "#2c3e50")
+    .style("font-weight", "700")
+    .text("Y:");
+
+  const select = right
+    .append("select")
+    .attr("class", "scatter-y-select")
+    .style("font-size", "12px")
+    .style("padding", "6px 10px")
+    .style("border", "1px solid #d0d7de")
+    .style("border-radius", "8px")
+    .style("background", "white")
+    .style("cursor", "pointer");
+
+  select
+    .selectAll("option")
+    .data(Y_OPTIONS)
+    .enter()
+    .append("option")
+    .attr("value", (d) => d.key)
+    .text((d) => d.label);
+
+  // store reference for update
+  svgElement._scatterState._ySelect = select;
 
   wrapper
     .append("svg")
@@ -85,6 +187,7 @@ function _createScatterStructure(svgElement) {
     .style("width", "100%")
     .style("flex", "1")
     .style("background-color", "#ffffff")
+    // ✅ keep ~300px
     .style("min-height", "300px");
 
   wrapper
@@ -99,48 +202,6 @@ function _createScatterStructure(svgElement) {
     .style("gap", "20px");
 }
 
-// Stable ID generator: if you have d.id, use that instead.
-function pointId(d) {
-  const p = Number.isFinite(+d.pct_staff_present) ? (+d.pct_staff_present).toFixed(2) : "na";
-  const o = Number.isFinite(+d.occupancy) ? (+d.occupancy).toFixed(3) : "na";
-  return `${d.week}__${d.service}__${d.event}__${p}__${d.staff_morale}__${d.patients_refused}__${o}`;
-}
-
-// deterministic 0..1 hash
-function hash01(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0) / 4294967295;
-}
-
-/**
- * Deterministic x-jitter in px:
- * - Base spread ~12px
- * - Slightly wider near extremes (0% and 100%) up to ~20px
- *
- * You can tune:
- * - baseSpreadPx
- * - extraSpreadPx
- * - extremeBandPct
- */
-function xJitterPx(d) {
-  const xPct = +d.pct_staff_present;
-  const baseSpreadPx = 12;  // typical total width
-  const extraSpreadPx = 8;  // added near extremes (so total up to 20)
-  const extremeBandPct = 8; // within 8% of either edge we widen
-
-  // edgeProximity: 1 at the edge, 0 at/beyond band boundary
-  const distToEdge = Math.min(xPct, 100 - xPct); // 0..50
-  const edgeProximity = Math.max(0, 1 - distToEdge / extremeBandPct); // 0..1
-
-  const spread = baseSpreadPx + extraSpreadPx * edgeProximity; // 12..20
-  const t = hash01(pointId(d)) - 0.5; // -0.5..0.5
-  return t * spread;
-}
-
 export function update(svgElement, globalData, state, dispatch) {
   try {
     if (!globalData.task3Data || globalData.task3Data.length === 0) {
@@ -148,7 +209,28 @@ export function update(svgElement, globalData, state, dispatch) {
       return;
     }
 
-    const data = globalData.task3Data;
+    const scatterState = svgElement._scatterState;
+
+    // Hook dropdown once (keeps your structure)
+    if (scatterState._ySelect && !scatterState._ySelectHooked) {
+      scatterState._ySelectHooked = true;
+
+      scatterState._ySelect
+        .property("value", scatterState.yMetric)
+        .on("change", function () {
+          scatterState.yMetric = this.value;
+          // keep same selection, just redraw
+          update(svgElement, globalData, state, dispatch);
+        });
+    }
+
+    const yMetric = scatterState.yMetric || "staff_morale";
+    const yLabel =
+      Y_OPTIONS.find((o) => o.key === yMetric)?.label || "Staff Morale";
+
+    // normalize event on the fly (cheap + safe)
+    const data = globalData.task3Data.map((d) => ({ ...d, event: normalizeEvent(d.event) }));
+
     const svg = d3.select(svgElement).select("svg.scatter-chart");
 
     const svgNode = svg.node();
@@ -166,23 +248,27 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Layers: brush behind points
     const gridLayer = g.append("g").attr("class", "layer-grid");
     const axesLayer = g.append("g").attr("class", "layer-axes");
     const brushLayer = g.append("g").attr("class", "layer-brush");
     const pointsLayer = g.append("g").attr("class", "layer-points");
 
-    const scatterState = svgElement._scatterState;
-
-    // ========== SCALES ==========
-    // ✅ Linear scale for X to match distribution and avoid weird warping
     const xScale = d3.scaleLinear().domain([0, 100]).range([0, plotWidth]).clamp(true);
 
-    const yExtent = d3.extent(data, (d) => +d.staff_morale);
-    const yMin = Math.max(30, (yExtent?.[0] ?? 30) - 5);
-    const yMax = Math.min(100, (yExtent?.[1] ?? 100) + 5);
+    // ✅ Y scale depends on dropdown choice
+    const yExtent = d3.extent(data, (d) => +d[yMetric]);
 
-    const yScale = d3.scaleLinear().domain([yMin, yMax]).range([plotHeight, 0]).nice().clamp(true);
+    let yScale;
+    if (yMetric === "patients_refused") {
+      // refusals: start at 0 for readability
+      const ymax = Math.max(10, (yExtent?.[1] ?? 10));
+      yScale = d3.scaleLinear().domain([0, ymax]).range([plotHeight, 0]).nice().clamp(true);
+    } else {
+      // morale: keep your old nice bounds
+      const yMin = Math.max(30, (yExtent?.[0] ?? 30) - 5);
+      const yMax = Math.min(100, (yExtent?.[1] ?? 100) + 5);
+      yScale = d3.scaleLinear().domain([yMin, yMax]).range([plotHeight, 0]).nice().clamp(true);
+    }
 
     const sizeScale = d3
       .scaleSqrt()
@@ -194,12 +280,15 @@ export function update(svgElement, globalData, state, dispatch) {
     scatterState.xScale = xScale;
     scatterState.yScale = yScale;
 
-    // ========== FILTER FUNCTION ==========
     const passesStateFilters = (d) => {
       if (state.timeRange && (d.week < state.timeRange[0] || d.week > state.timeRange[1])) return false;
       if (state.selectedWeek && d.week !== state.selectedWeek) return false;
-      if (state.selectedEventType && d.event !== state.selectedEventType) return false;
+      if (state.selectedEventType && normalizeEvent(d.event) !== normalizeEvent(state.selectedEventType)) return false;
       if (state.stressOnly && d.stress_level !== "high") return false;
+
+      // ✅ if chosen Y is missing, drop point (prevents NaNs breaking the plot)
+      if (!Number.isFinite(+d[yMetric])) return false;
+
       return true;
     };
 
@@ -229,7 +318,6 @@ export function update(svgElement, globalData, state, dispatch) {
       renderSelectionStyles();
     };
 
-    // ESC clears selection (attach once)
     if (!scatterState.keyHandlerAttached) {
       scatterState.keyHandlerAttached = true;
       window.addEventListener("keydown", (e) => {
@@ -239,7 +327,7 @@ export function update(svgElement, globalData, state, dispatch) {
       });
     }
 
-    // ========== GRID ==========
+    // Grid
     gridLayer
       .append("g")
       .attr("class", "grid")
@@ -248,9 +336,9 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("opacity", 0.3)
       .call(d3.axisLeft(yScale).tickSize(-plotWidth).tickFormat(""));
 
-    // ========== AXES ==========
+    // Axes
     const xAxis = d3.axisBottom(xScale).ticks(10).tickFormat((d) => `${d}%`);
-    const yAxis = d3.axisLeft(yScale).ticks(15);
+    const yAxis = d3.axisLeft(yScale).ticks(10);
 
     const xAxisGroup = axesLayer
       .append("g")
@@ -283,9 +371,9 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("font-size", "13px")
       .style("font-weight", "bold")
       .style("fill", "#2c3e50")
-      .text("Staff Morale");
+      .text(yLabel);
 
-    // ========== Clear Brush Button (inside plot) ==========
+    // Clear brush button inside plot
     const clearBtn = g
       .append("g")
       .attr("class", "clear-brush-btn")
@@ -316,7 +404,7 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", "#2c3e50")
       .text("Clear brush");
 
-    // ========== TOOLTIP (singleton) ==========
+    // Tooltip singleton
     const getTooltip = () => {
       if (scatterState.tooltipEl && document.body.contains(scatterState.tooltipEl.node())) return scatterState.tooltipEl;
 
@@ -341,12 +429,19 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const showTooltip = (event, d) => {
       const tooltip = getTooltip();
+
+      const yVal =
+        yMetric === "patients_refused"
+          ? `${(+d.patients_refused).toFixed(0)}`
+          : `${(+d.staff_morale).toFixed(0)}`;
+
       tooltip
         .html(`
           <strong style="font-size: 13px;">${d.service}</strong> - Week ${d.week}<br>
           <span style="color: #bdc3c7; display: block; margin-top: 5px;">
-            Event: ${d.event === "none" ? "Normal" : d.event}<br>
-            Staff Present: <strong>${(+d.pct_staff_present).toFixed(1)}%</strong> | Morale: <strong>${d.staff_morale}</strong><br>
+            Event: <strong>${normalizeEvent(d.event)}</strong><br>
+            Staff Present: <strong>${(+d.pct_staff_present).toFixed(1)}%</strong><br>
+            ${yLabel}: <strong>${yVal}</strong><br>
             Patients Refused: <strong>${d.patients_refused}</strong> | Occupancy: <strong>${(+d.occupancy * 100).toFixed(1)}%</strong><br>
             Patient Satisfaction: <strong>${d.patient_satisfaction}</strong>
           </span><br>
@@ -373,19 +468,18 @@ export function update(svgElement, globalData, state, dispatch) {
       if (scatterState.tooltipEl) scatterState.tooltipEl.style("display", "none");
     };
 
-    // ========== POINTS ==========
+    // Points
     pointsLayer
       .selectAll("circle.point")
       .data(data, (d) => pointId(d))
       .join("circle")
       .attr("class", "point")
       .attr("cx", (d) => xScale(+d.pct_staff_present) + xJitterPx(d))
-      .attr("cy", (d) => yScale(+d.staff_morale))
+      .attr("cy", (d) => yScale(+d[yMetric]))
       .attr("r", (d) => sizeScale(+d.patients_refused))
-      .style("fill", (d) => EVENT_COLORS[d.event] || EVENT_COLORS.none)
+      .style("fill", (d) => EVENT_COLORS[normalizeEvent(d.event)] || EVENT_COLORS.none)
       .style("cursor", "default")
       .on("mouseenter", function (event, d) {
-        // Keep tooltip/hover separate from selection highlight; selection re-applies on leave
         d3.select(this).style("filter", "drop-shadow(0 0 4px rgba(0,0,0,0.35))");
         showTooltip(event, d);
       })
@@ -401,7 +495,7 @@ export function update(svgElement, globalData, state, dispatch) {
     renderSelectionStyles();
     svg.on("mouseleave", hideTooltip);
 
-    // ========== BRUSH ==========
+    // Brush
     const brushState = { start: null, moved: false };
 
     const brushBg = brushLayer
@@ -412,15 +506,13 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", "transparent")
       .style("cursor", "crosshair");
 
-    // Click-to-clear only if the user didn't drag
     brushBg.on("click", () => {
       if (!brushState.moved) clearSelection();
     });
     brushBg.on("dblclick", () => clearSelection());
 
     brushBg.call(
-      d3
-        .drag()
+      d3.drag()
         .on("start", (event) => {
           brushState.start = d3.pointer(event, g.node());
           brushState.moved = false;
@@ -430,7 +522,7 @@ export function update(svgElement, globalData, state, dispatch) {
           const p = d3.pointer(event, g.node());
           const dx = p[0] - brushState.start[0];
           const dy = p[1] - brushState.start[1];
-          if (dx * dx + dy * dy > 9) brushState.moved = true; // >3px
+          if (dx * dx + dy * dy > 9) brushState.moved = true;
 
           const x0 = Math.max(0, Math.min(brushState.start[0], p[0]));
           const x1 = Math.min(plotWidth, Math.max(brushState.start[0], p[0]));
@@ -450,11 +542,11 @@ export function update(svgElement, globalData, state, dispatch) {
             .style("stroke", SELECT_COLOR)
             .style("stroke-width", 2);
 
-          // IMPORTANT: selection test should use the SAME jittered x used for plotting
           const selectedIds = new Set();
           for (const d of data) {
+            // selection uses the same jittered x and same y metric
             const cx = xScale(+d.pct_staff_present) + xJitterPx(d);
-            const cy = yScale(+d.staff_morale);
+            const cy = yScale(+d[yMetric]);
             if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) selectedIds.add(pointId(d));
           }
 
@@ -471,10 +563,7 @@ export function update(svgElement, globalData, state, dispatch) {
             }
             const weekArray = Array.from(selectedWeeks).sort((a, b) => a - b);
             if (weekArray.length > 0) {
-              dispatch({
-                type: "SET_TIME_RANGE",
-                value: [weekArray[0], weekArray[weekArray.length - 1]],
-              });
+              dispatch({ type: "SET_TIME_RANGE", value: [weekArray[0], weekArray[weekArray.length - 1]] });
             }
           }
         })
@@ -490,27 +579,27 @@ function _updateScatterLegend(svgElement) {
   const legendDiv = d3.select(svgElement).select(".scatter-legend");
   legendDiv.selectAll("*").remove();
 
+  const eventOrder = ["donation", "flu", "strike", "none"];
+
   const eventHtml = `
     <div>
       <strong style="color: #2c3e50; display: block; margin-bottom: 10px; font-size: 12px;">Event Type (Fill Color)</strong>
-      ${Object.entries(EVENT_COLORS)
-        .map(
-          ([event, color]) => `
-        <div style="display: flex; align-items: center; margin: 6px 0;">
-          <span style="
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            background-color: ${color};
-            border-radius: 50%;
-            margin-right: 8px;
-            border: 1px solid #ccc;
-          "></span>
-          <span style="font-size: 11px; color: #2c3e50;">${event === "none" ? "Normal" : event}</span>
-        </div>
-      `
-        )
-        .join("")}
+      ${eventOrder
+        .filter(e => EVENT_COLORS[e])
+        .map((event) => `
+          <div style="display: flex; align-items: center; margin: 6px 0;">
+            <span style="
+              display: inline-block;
+              width: 12px;
+              height: 12px;
+              background-color: ${EVENT_COLORS[event]};
+              border-radius: 50%;
+              margin-right: 8px;
+              border: 1px solid #ccc;
+            "></span>
+            <span style="font-size: 11px; color: #2c3e50;">${event}</span>
+          </div>
+        `).join("")}
     </div>
   `;
 
@@ -518,23 +607,20 @@ function _updateScatterLegend(svgElement) {
     <div>
       <strong style="color: #2c3e50; display: block; margin-bottom: 10px; font-size: 12px;">Service Type (Border Color)</strong>
       ${Object.entries(SERVICE_COLORS)
-        .map(
-          ([service, color]) => `
-        <div style="display: flex; align-items: center; margin: 6px 0;">
-          <span style="
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid ${color};
-            border-radius: 50%;
-            background-color: white;
-            margin-right: 8px;
-          "></span>
-          <span style="font-size: 11px; color: #2c3e50;">${service.replaceAll("_", " ")}</span>
-        </div>
-      `
-        )
-        .join("")}
+        .map(([service, color]) => `
+          <div style="display: flex; align-items: center; margin: 6px 0;">
+            <span style="
+              display: inline-block;
+              width: 12px;
+              height: 12px;
+              border: 2px solid ${color};
+              border-radius: 50%;
+              background-color: white;
+              margin-right: 8px;
+            "></span>
+            <span style="font-size: 11px; color: #2c3e50;">${service.replaceAll("_", " ")}</span>
+          </div>
+        `).join("")}
     </div>
   `;
 
@@ -542,7 +628,7 @@ function _updateScatterLegend(svgElement) {
     <div>
       <strong style="color: #2c3e50; display: block; margin-bottom: 10px; font-size: 12px;">Bubble Size</strong>
       <span style="font-size: 11px; color: #7f8c8d;">
-        Size = Patients Refused (0-363)<br>
+        Size = Patients Refused<br>
         Larger bubbles = More demand pressure
       </span>
     </div>

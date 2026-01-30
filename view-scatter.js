@@ -2,30 +2,133 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
 /**
- * Task 4 — Linked Scatterplot Explorer (Stress-conditioned, linked)
+ * Task — Linked Scatterplot Explorer (composition vs outcome)
  *
- * Improvements (from summary concepts):
- * - Reduce clutter: smaller marks + transparency + density contours (KDE-like) [file:135][web:151]
- * - Better comparison: gridlines on common scales [file:135]
- * - Linked brushing: brush selects week range (dispatch SET_TIME_RANGE) [file:135][web:4]
- * - Linked selection: click point -> SET_SELECTED_SERVICE [file:1]
+ * ✅ What this version fixes / improves (without changing your app architecture):
+ * - Height stays ~300px (responsive width)
+ * - Uses ABU-style events: flu / strike / donation / none (no "normal")
+ * - Deterministic jitter (stable per point) + slightly wider near extremes
+ * - TRUE linked brushing:
+ *    • Drag rectangle to select points -> dispatch SET_TIME_RANGE (min..max week in selection)
+ *    • Selected points highlight (orange), others fade
+ * - Clear selection:
+ *    • Button "Clear brush" (top-right)
+ *    • Single click on empty plot (no drag)
+ *    • Double click
+ *    • ESC
+ * - Click point toggles service selection (dispatch SET_SELECTED_SERVICE)
+ * - Legend items clickable to filter:
+ *    • Event legend toggles selectedEventType (dispatch SET_SELECTED_EVENT_TYPE)
+ *    • Service legend toggles selectedService (dispatch SET_SELECTED_SERVICE)
+ * - Tooltip (singleton, no memory leak)
+ *
+ * Assumptions about input `data`:
+ * - Prefer: data.task3Data (from data_processor_abu.js getTask3Data)
+ * - Fallback: data.serviceWeeklyStaff (legacy)
  */
 
-export function init(container, data, state, dispatch) {
+const EVENT_COLORS = {
+  none: "#9aa0a6",
+  flu: "#e74c3c",
+  strike: "#ff7f0e",
+  donation: "#1f77b4"
+};
+
+const SERVICE_COLORS = {
+  Emergency: "#3498db",
+  ICU: "#e74c3c",
+  Surgery: "#f39c12",
+  General_Medicine: "#2ecc71"
+};
+
+const SELECT_ORANGE = "#ff8c00";
+
+// -------------------- small normalizers (view-only) --------------------
+function normStr(x) {
+  return String(x ?? "").trim();
+}
+function normEvent(x) {
+  const e = String(x ?? "").trim().toLowerCase();
+  if (!e || e === "normal") return "none";
+  if (e.includes("flu") || e.includes("influenza")) return "flu";
+  if (e.includes("strike") || e.includes("walkout")) return "strike";
+  if (e.includes("donat")) return "donation";
+  if (e === "none") return "none";
+  return "none";
+}
+function normServiceLabel(x) {
+  const s = String(x ?? "").trim();
+  const lower = s.toLowerCase();
+  if (lower === "icu") return "ICU";
+  if (lower.includes("emerg")) return "Emergency";
+  if (lower.includes("surg")) return "Surgery";
+  if (lower.includes("general") && lower.includes("med")) return "General_Medicine";
+  // already canonical?
+  if (SERVICE_COLORS[s]) return s;
+  return s;
+}
+function prettyService(s) {
+  return normStr(s).replaceAll("_", " ");
+}
+
+// stable ID + stable hash jitter
+function pointId(d) {
+  // prefer explicit id if present
+  if (d.id != null) return String(d.id);
+
+  const w = +d.week;
+  const svc = normServiceLabel(d.service);
+  const ev = normEvent(d.event ?? d.eventType);
+  const x = Number.isFinite(+d.pct_staff_present) ? (+d.pct_staff_present).toFixed(2) : "na";
+  const y = Number.isFinite(+d.staff_morale) ? (+d.staff_morale).toFixed(0) : "na";
+  const r = Number.isFinite(+d.patients_refused) ? (+d.patients_refused).toFixed(0) : "na";
+  return `${w}__${svc}__${ev}__${x}__${y}__${r}`;
+}
+function hash01(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967295;
+}
+function xJitterPx(d, xPct) {
+  // deterministic jitter width slightly wider near 0/100
+  const baseSpreadPx = 8;
+  const extraSpreadPx = 6;
+  const extremeBandPct = 10;
+
+  const distToEdge = Math.min(xPct, 100 - xPct);
+  const edgeProximity = Math.max(0, 1 - distToEdge / extremeBandPct);
+  const spread = baseSpreadPx + extraSpreadPx * edgeProximity;
+
+  const t = hash01(pointId(d)) - 0.5; // -0.5..0.5
+  return t * spread;
+}
+
+// -------------------- INIT --------------------
+export function init(container, globalData, state, dispatch) {
   const el = d3.select(container);
 
-  // Preserve panel header if present
+  // preserve panel header if present
   const headerNode = el.select(".panel-header").node();
   el.selectAll("*").remove();
   if (headerNode) el.node().appendChild(headerNode);
 
-  // Controls row
-  const controls = el.append("div")
+  // wrapper
+  const wrap = el.append("div")
+    .attr("class", "scatter-wrap")
+    .style("display", "flex")
+    .style("flex-direction", "column")
+    .style("gap", "8px");
+
+  // controls row
+  const controls = wrap.append("div")
+    .attr("class", "scatter-controls")
     .style("display", "flex")
     .style("justify-content", "space-between")
     .style("align-items", "center")
-    .style("gap", "12px")
-    .style("margin", "10px 0 6px 0");
+    .style("gap", "12px");
 
   const left = controls.append("div")
     .style("display", "flex")
@@ -43,7 +146,7 @@ export function init(container, data, state, dispatch) {
     .style("border", "1px solid #ddd")
     .style("border-radius", "6px");
 
-  // Stress toggle
+  // right controls
   const right = controls.append("div")
     .style("display", "flex")
     .style("align-items", "center")
@@ -65,127 +168,103 @@ export function init(container, data, state, dispatch) {
 
   stressWrap.append("span").text("Stress-only");
 
-  // Small hint line
   right.append("span")
     .style("font-size", "12px")
     .style("color", "#888")
-    .text("Brush points to set week range • Click point to select service");
+    .text("Drag to brush • Click point/service to select • Click event to filter");
 
-  // Caption
-  const subtitle = el.append("div")
+  // subtitle
+  const subtitle = wrap.append("div")
     .attr("class", "scatter-subtitle")
     .style("font-size", "12px")
-    .style("color", "#666")
-    .style("margin", "0 0 8px 0");
+    .style("color", "#666");
 
-  const margin = { top: 10, right: 20, bottom: 50, left: 70 };
-  const width = 1100 - margin.left - margin.right;
-  const height = 360 - margin.top - margin.bottom;
+  // chart
+  const margin = { top: 18, right: 18, bottom: 42, left: 62 };
+  const viewW = 1000;
+  const plotH = 300; // requested ~300px
+  const svgH = plotH + margin.top + margin.bottom;
 
-  const svg = el.append("svg")
-    .attr("width", "100%")
-    .attr("height", height + margin.top + margin.bottom)
-    .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`);
+  const svg = wrap.append("svg")
+    .attr("class", "scatter-svg")
+    .style("width", "100%")
+    .style("height", `${svgH}px`)
+    .attr("viewBox", `0 0 ${viewW} ${svgH}`);
 
-  const root = svg.append("g")
-    .attr("transform", `translate(${margin.left},${margin.top})`);
+  const root = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-  const x = d3.scaleLinear().range([0, width]);
-  const y = d3.scaleLinear().range([height, 0]);
+  const width = viewW - margin.left - margin.right;
+  const height = plotH;
 
-  root.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
-  root.append("g").attr("class", "y-axis");
-  root.append("g").attr("class", "x-grid").attr("transform", `translate(0,${height})`);
-  root.append("g").attr("class", "y-grid");
+  // layers
+  const gridLayer = root.append("g").attr("class", "grid-layer");
+  const axesLayer = root.append("g").attr("class", "axes-layer");
+  const brushLayer = root.append("g").attr("class", "brush-layer");
+  const pointsLayer = root.append("g").attr("class", "points-layer");
+  const uiLayer = root.append("g").attr("class", "ui-layer");
 
-  root.append("text")
+  // axes groups
+  axesLayer.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
+  axesLayer.append("g").attr("class", "y-axis");
+  axesLayer.append("text")
     .attr("class", "x-label")
     .attr("x", width / 2)
-    .attr("y", height + 42)
+    .attr("y", height + 34)
     .attr("text-anchor", "middle")
     .style("font-size", "12px")
+    .style("font-weight", "600")
     .style("fill", "#2d3436");
 
-  root.append("text")
+  axesLayer.append("text")
     .attr("class", "y-label")
     .attr("transform", "rotate(-90)")
     .attr("x", -height / 2)
-    .attr("y", -52)
+    .attr("y", -48)
     .attr("text-anchor", "middle")
     .style("font-size", "12px")
+    .style("font-weight", "600")
     .style("fill", "#2d3436");
 
-  const plot = root.append("g").attr("class", "plot");
-  const densityG = plot.append("g").attr("class", "density");
-  const pointsG = plot.append("g").attr("class", "points");
-  const brushG = plot.append("g").attr("class", "brush");
-
-  const tooltip = d3.select("body").select(".chart-tooltip");
-
-  // Brush (rectangle) -> sets time range based on selected points
-  const brush = d3.brush()
-    .extent([[0, 0], [width, height]])
-    .on("end", (event) => {
-      if (!event.selection) return;
-      const [[x0, y0], [x1, y1]] = event.selection;
-
-      const selected = [];
-      pointsG.selectAll("circle.point").each(function (d) {
-        const cx = +d3.select(this).attr("cx");
-        const cy = +d3.select(this).attr("cy");
-        if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) selected.push(d);
-      });
-
-      if (selected.length) {
-        const minW = d3.min(selected, d => +d.week);
-        const maxW = d3.max(selected, d => +d.week);
-        dispatch({ type: "SET_TIME_RANGE", value: [minW, maxW] });
-      }
-
-      brushG.call(brush.move, null);
-    });
-
-  brushG.call(brush);
-
-  container.refs = {
+  // state stored on container
+  container._scatter = {
     dispatch,
-    svg,
-    root,
-    plot,
-    densityG,
-    pointsG,
-    brushG,
-    brush,
-    x,
-    y,
-    width,
-    height,
-    margin,
-    tooltip,
     select,
     stressCheckbox,
     subtitle,
+    svg,
+    root,
+    width,
+    height,
+    margin,
+    gridLayer,
+    axesLayer,
+    brushLayer,
+    pointsLayer,
+    uiLayer,
     xVar: null,
-    stateSnapshot: state
+    selectionIds: new Set(),
+    tooltipEl: null,
+    keyHandlerAttached: false
   };
 
-  populateCompositionDropdown(container, data);
+  // dropdown options based on data keys
+  populateCompositionDropdown(container, globalData);
 
-  // Handle dropdown change
   select.on("change", function () {
-    container.refs.xVar = this.value;
-    update(container, data, container.refs.stateSnapshot);
+    container._scatter.xVar = this.value;
+    update(container, globalData, state, dispatch);
   });
+
+  update(container, globalData, state, dispatch);
 }
 
-export function update(container, data, state) {
-  const refs = container.refs;
-  refs.stateSnapshot = state;
+// -------------------- UPDATE --------------------
+export function update(container, globalData, state, dispatch) {
+  const refs = container._scatter;
+  if (!refs) return;
 
-  const { root, densityG, pointsG, x, y, width, height, tooltip, select, stressCheckbox, subtitle } = refs;
-
-  // sync checkbox with state
-  stressCheckbox.property("checked", !!state.stressOnly);
+  // sync checkbox
+  refs.stressCheckbox.property("checked", !!state.stressOnly);
 
   const metric = state.metric || "refusals";
   const metricLabel = {
@@ -195,24 +274,63 @@ export function update(container, data, state) {
     satisfaction: "Patient Satisfaction"
   }[metric] || metric;
 
-  const rows = Array.isArray(data.serviceWeeklyStaff) ? data.serviceWeeklyStaff : [];
-  densityG.selectAll("*").remove();
-  pointsG.selectAll("*").remove();
+  // pull best dataset
+  const raw =
+    Array.isArray(globalData?.task3Data) ? globalData.task3Data :
+    Array.isArray(globalData?.serviceWeeklyStaff) ? globalData.serviceWeeklyStaff :
+    [];
+
+  // adapt rows into one consistent shape
+  const rows = raw.map(d => {
+    const service = normServiceLabel(d.service);
+    const event = normEvent(d.event ?? d.eventType);
+
+    // metric fields (legacy compatibility)
+    const refusals = Number.isFinite(+d.patients_refused) ? +d.patients_refused : +d.refusals;
+    const morale = Number.isFinite(+d.staff_morale) ? +d.staff_morale : +d.morale;
+    const occupancy = Number.isFinite(+d.occupancy) ? +d.occupancy : +d.occ;
+    const satisfaction = Number.isFinite(+d.patient_satisfaction) ? +d.patient_satisfaction : +d.satisfaction;
+
+    // composition fields:
+    // ABU scatter uses pct_staff_present; legacy uses pctDoctor/pctNurse/etc.
+    const pct_staff_present = Number.isFinite(+d.pct_staff_present) ? +d.pct_staff_present : undefined;
+
+    return {
+      ...d,
+      service,
+      event,
+      week: +d.week,
+      refusals,
+      morale,
+      occupancy,
+      satisfaction,
+      pct_staff_present
+    };
+  });
+
+  refs.gridLayer.selectAll("*").remove();
+  refs.axesLayer.selectAll(".x-axis > *").remove();
+  refs.axesLayer.selectAll(".y-axis > *").remove();
+  refs.pointsLayer.selectAll("*").remove();
+  refs.brushLayer.selectAll("*").remove();
+  refs.uiLayer.selectAll("*").remove();
 
   if (!rows.length) {
-    subtitle.text("No data loaded for scatter.");
+    refs.subtitle.text("No data available for scatter.");
     return;
   }
 
-  // choose x variable (default = first option)
+  // choose x variable (default = pct_staff_present if present, else first pct* key)
   if (!refs.xVar) {
-    const opt = select.select("option").node();
-    refs.xVar = opt ? opt.value : null;
+    const hasPctStaff = rows.some(d => Number.isFinite(+d.pct_staff_present));
+    refs.xVar = hasPctStaff ? "pct_staff_present" : refs.select.select("option")?.node()?.value || null;
+    if (refs.xVar) refs.select.property("value", refs.xVar);
   }
   const xVar = refs.xVar;
 
-  // Stress predicate (same as earlier, but keep transparent + documented)
+  // stress predicate (use ABU stress_level if present, else heuristic)
   const isStress = (d) => {
+    if (d.stress_level) return String(d.stress_level).toLowerCase() === "high";
     const occ = +d.occupancy;
     const ref = +d.refusals;
     const mor = +d.morale;
@@ -221,183 +339,470 @@ export function update(container, data, state) {
       (Number.isFinite(mor) && mor <= 65);
   };
 
-  // Filter by global state
+  // apply global filters
   let filtered = rows.filter(d => {
-    const w = +d.week;
-    if (state.timeRange && (w < state.timeRange[0] || w > state.timeRange[1])) return false;
-    if (state.selectedEventType && d.eventType !== state.selectedEventType) return false;
+    if (!Number.isFinite(+d.week)) return false;
+
+    if (state.timeRange && (+d.week < +state.timeRange[0] || +d.week > +state.timeRange[1])) return false;
+
+    // event filter uses state.selectedEventType (case-insensitive)
+    if (state.selectedEventType) {
+      if (normEvent(d.event) !== normEvent(state.selectedEventType)) return false;
+    }
+
     if (state.stressOnly && !isStress(d)) return false;
 
+    // x field must exist
     if (!xVar || !Number.isFinite(+d[xVar])) return false;
-    if (!Number.isFinite(+d[metric])) return false;
+
+    // y metric value must exist
+    const yVal =
+      metric === "refusals" ? +d.refusals :
+      metric === "morale" ? +d.morale :
+      metric === "occupancy" ? +d.occupancy :
+      metric === "satisfaction" ? +d.satisfaction :
+      +d[metric];
+
+    if (!Number.isFinite(yVal)) return false;
     return true;
   });
 
   if (!filtered.length) {
-    subtitle.text("No points match the current filters (try relaxing filters).");
+    refs.subtitle.text("No points match the current filters (try clearing filters).");
     return;
   }
 
-  subtitle.text(
+  // subtitle
+  refs.subtitle.text(
     `${metricLabel} vs ${xVar}` +
     (state.stressOnly ? " • stress-only" : "") +
     (state.timeRange ? ` • weeks ${state.timeRange[0]}–${state.timeRange[1]}` : "") +
-    (state.selectedEventType ? ` • event=${state.selectedEventType}` : "") +
+    (state.selectedEventType ? ` • event=${normEvent(state.selectedEventType)}` : "") +
     (state.selectedService ? ` • service=${prettyService(state.selectedService)}` : "")
   );
 
-  // Scales
-  x.domain(d3.extent(filtered, d => +d[xVar])).nice();
-  y.domain(d3.extent(filtered, d => +d[metric])).nice();
+  // scales
+  const { width, height } = refs;
 
-  // Axis formatting: X is a percentage
-  const pctFmt = d3.format(".0%");
-  root.select(".x-axis")
-    .call(d3.axisBottom(x).ticks(7).tickFormat(pctFmt))
-    .selectAll("text").style("font-size", "11px");
+  // X: if pct_staff_present -> 0..100
+  const isPctStaffPresent = xVar === "pct_staff_present";
+  const xDomain = isPctStaffPresent
+    ? [0, 100]
+    : d3.extent(filtered, d => +d[xVar]);
 
-  root.select(".y-axis")
-    .call(d3.axisLeft(y).ticks(6))
-    .selectAll("text").style("font-size", "11px");
+  const x = d3.scaleLinear()
+    .domain([xDomain[0] ?? 0, xDomain[1] ?? 1])
+    .range([0, width])
+    .nice()
+    .clamp(true);
 
-  // Gridlines (improves readability on common scale)
-  root.select(".x-grid")
+  const yAccessor = (d) => {
+    if (metric === "refusals") return +d.refusals;
+    if (metric === "morale") return +d.morale;
+    if (metric === "occupancy") return +d.occupancy;
+    if (metric === "satisfaction") return +d.satisfaction;
+    return +d[metric];
+  };
+
+  const yDomain = d3.extent(filtered, yAccessor);
+  const y = d3.scaleLinear()
+    .domain([yDomain[0] ?? 0, yDomain[1] ?? 1])
+    .range([height, 0])
+    .nice()
+    .clamp(true);
+
+  // grid
+  refs.gridLayer.append("g")
+    .attr("transform", `translate(0,${height})`)
     .call(d3.axisBottom(x).ticks(7).tickSize(-height).tickFormat(""))
-    .selectAll("line")
-    .attr("stroke", "#ecf0f1")
-    .attr("stroke-width", 1);
-  root.select(".x-grid").select(".domain").remove();
+    .call(g => g.selectAll("line").attr("stroke", "#ecf0f1").attr("stroke-width", 1))
+    .call(g => g.select(".domain").remove());
 
-  root.select(".y-grid")
+  refs.gridLayer.append("g")
     .call(d3.axisLeft(y).ticks(6).tickSize(-width).tickFormat(""))
-    .selectAll("line")
-    .attr("stroke", "#ecf0f1")
-    .attr("stroke-width", 1);
-  root.select(".y-grid").select(".domain").remove();
+    .call(g => g.selectAll("line").attr("stroke", "#ecf0f1").attr("stroke-width", 1))
+    .call(g => g.select(".domain").remove());
 
-  root.select(".x-label").text(xVar);
-  root.select(".y-label").text(metricLabel);
+  // axes
+  const xTickFmt = isPctStaffPresent ? (d) => `${d}%` : d3.format(".2~s");
+  const yTickFmt =
+    metric === "occupancy" ? d3.format(".0%") :
+    metric === "satisfaction" ? d3.format(".0f") :
+    metric === "morale" ? d3.format(".0f") :
+    metric === "refusals" ? d3.format(".0f") :
+    d3.format(".2~s");
 
-  // Color by event type (use d3.schemeTableau10-ish mapping)
-  // Keep category color but not too saturated; opacity handles clutter.
-  const colorMap = { flu: "#9467bd", strike: "#ff7f0e", donation: "#1f77b4", none: "#9aa0a6" };
-  const color = (d) => colorMap[d.eventType] || "#9aa0a6";
+  refs.axesLayer.select(".x-axis")
+    .call(d3.axisBottom(x).ticks(7).tickFormat(xTickFmt))
+    .selectAll("text").style("font-size", "11px").style("fill", "#666");
 
-  // Slight jitter ONLY to separate the stack at exactly 0% (visual clutter reduction)
-  // Keep jitter tiny to not lie about the data too much. [file:135]
-  const xSpan = (x.domain()[1] - x.domain()[0]) || 1;
-  const jitter = () => (Math.random() - 0.5) * xSpan * 0.0025; // ~0.25% of range
+  refs.axesLayer.select(".y-axis")
+    .call(d3.axisLeft(y).ticks(6).tickFormat(yTickFmt))
+    .selectAll("text").style("font-size", "11px").style("fill", "#666");
 
-  const points = filtered.map(d => ({
-    ...d,
-    __x: (+d[xVar] === 0 ? +d[xVar] + jitter() : +d[xVar]),
-    __y: +d[metric]
-  }));
+  refs.axesLayer.select(".x-label").text(isPctStaffPresent ? "Staff Present (%)" : xVar);
+  refs.axesLayer.select(".y-label").text(metricLabel);
 
-  // Density contours (KDE-like) to show structure under overplotting
-  // This is a direct scalability recommendation for scatterplots. [web:151][file:135]
-  const density = d3.contourDensity()
-    .x(d => x(d.__x))
-    .y(d => y(d.__y))
-    .size([width, height])
-    .bandwidth(18)(points);
+  // tooltip (singleton)
+  const getTooltip = () => {
+    if (refs.tooltipEl && document.body.contains(refs.tooltipEl.node())) return refs.tooltipEl;
+    refs.tooltipEl = d3.select("body").append("div")
+      .attr("class", "chart-tooltip")
+      .style("position", "fixed")
+      .style("pointer-events", "none")
+      .style("z-index", "9999")
+      .style("opacity", 0)
+      .style("background", "#2c3e50")
+      .style("color", "white")
+      .style("padding", "10px 12px")
+      .style("border-radius", "8px")
+      .style("font-size", "12px")
+      .style("box-shadow", "0 8px 18px rgba(0,0,0,0.22)");
+    return refs.tooltipEl;
+  };
 
-  densityG.selectAll("path")
-    .data(density)
-    .join("path")
-    .attr("d", d3.geoPath())
-    .attr("fill", "#74b9ff")
-    .attr("opacity", 0.08)
-    .attr("stroke", "#74b9ff")
-    .attr("stroke-width", 0.8)
-    .attr("stroke-opacity", 0.18);
+  const showTooltip = (event, d) => {
+    const t = getTooltip();
+    const xVal = +d[xVar];
+    const yVal = yAccessor(d);
 
-  // Draw points (smaller + alpha)
-  const rBase = 3.2;
+    t.html(`
+      <div style="font-weight:700; margin-bottom:6px;">
+        ${prettyService(d.service)} • Week ${d.week}
+      </div>
+      <div style="color:#cbd5e1;">
+        Event: <b style="color:#fff">${normEvent(d.event)}</b><br/>
+        ${isPctStaffPresent ? "Staff Present" : xVar}: <b style="color:#fff">${isPctStaffPresent ? `${xVal.toFixed(1)}%` : xVal.toFixed(3)}</b><br/>
+        ${metricLabel}: <b style="color:#fff">${metric === "occupancy" ? d3.format(".1%")(yVal) : yVal.toFixed(2)}</b><br/>
+        Refusals: <b style="color:#fff">${(+d.refusals).toFixed(0)}</b> •
+        Morale: <b style="color:#fff">${(+d.morale).toFixed(0)}</b> •
+        Occ: <b style="color:#fff">${d3.format(".1%")(+d.occupancy)}</b> •
+        Satisfaction: <b style="color:#fff">${(+d.satisfaction).toFixed(0)}</b>
+      </div>
+    `).style("opacity", 1);
 
-  pointsG.selectAll("circle.point")
-    .data(points, d => `${d.service}_${d.week}_${d.eventType}`)
+    t.style("left", `${(event.pageX ?? event.clientX) + 12}px`)
+      .style("top", `${(event.pageY ?? event.clientY) + 12}px`);
+  };
+
+  const moveTooltip = (event) => {
+    if (!refs.tooltipEl) return;
+    refs.tooltipEl
+      .style("left", `${(event.pageX ?? event.clientX) + 12}px`)
+      .style("top", `${(event.pageY ?? event.clientY) + 12}px`);
+  };
+
+  const hideTooltip = () => {
+    if (refs.tooltipEl) refs.tooltipEl.style("opacity", 0);
+  };
+
+  // selection helpers
+  const hasSelection = () => refs.selectionIds && refs.selectionIds.size > 0;
+  const isSelected = (d) => refs.selectionIds.has(pointId(d));
+
+  const renderPointStyles = () => {
+    refs.pointsLayer.selectAll("circle.point")
+      .style("opacity", d => {
+        // link selected service (from global state)
+        const serviceMatch = state.selectedService ? (String(d.service) === String(state.selectedService)) : true;
+
+        // if brush selection exists, only selected are strong
+        if (hasSelection()) {
+          if (!isSelected(d)) return 0.08;
+          return serviceMatch ? 0.75 : 0.18;
+        }
+
+        return serviceMatch ? 0.6 : 0.14;
+      })
+      .style("stroke", d => {
+        if (hasSelection() && isSelected(d)) return SELECT_ORANGE;
+        // otherwise subtle service stroke
+        return SERVICE_COLORS[d.service] || "#ffffff";
+      })
+      .style("stroke-width", d => (hasSelection() && isSelected(d)) ? 2.5 : 1.4)
+      .style("filter", d => (hasSelection() && isSelected(d)) ? "drop-shadow(0 0 2px rgba(255,140,0,0.45))" : "none");
+  };
+
+  const clearSelection = () => {
+    refs.selectionIds = new Set();
+    refs.brushLayer.selectAll(".brush-rect").remove();
+    renderPointStyles();
+  };
+
+  // ESC to clear (attach once)
+  if (!refs.keyHandlerAttached) {
+    refs.keyHandlerAttached = true;
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") clearSelection();
+    });
+  }
+
+  // points with deterministic jitter (only when x is pct_staff_present; otherwise tiny)
+  const points = filtered.map(d => {
+    const xVal = +d[xVar];
+    const xPx = x(xVal);
+    const jitterPx = isPctStaffPresent ? xJitterPx(d, xVal) : ((hash01(pointId(d)) - 0.5) * 4);
+    return { ...d, __xPx: xPx + jitterPx, __yPx: y(yAccessor(d)) };
+  });
+
+  // draw points
+  refs.pointsLayer.selectAll("circle.point")
+    .data(points, d => pointId(d))
     .join("circle")
     .attr("class", "point")
-    .attr("cx", d => x(d.__x))
-    .attr("cy", d => y(d.__y))
-    .attr("r", d => (state.selectedWeek && +d.week === +state.selectedWeek) ? 5 : rBase)
-    .attr("fill", d => color(d))
-    .attr("opacity", d => {
-      // strong linking: selected service pops out
-      if (state.selectedService && d.service !== state.selectedService) return 0.12;
-      return 0.55;
+    .attr("cx", d => d.__xPx)
+    .attr("cy", d => d.__yPx)
+    .attr("r", 3.2)
+    .attr("fill", d => EVENT_COLORS[normEvent(d.event)] || EVENT_COLORS.none)
+    .style("cursor", "pointer")
+    .on("mouseenter", function (event, d) {
+      d3.select(this).style("filter", "drop-shadow(0 0 4px rgba(0,0,0,0.35))");
+      showTooltip(event, d);
     })
-    .attr("stroke", d => (state.selectedService && d.service === state.selectedService) ? "#2d3436" : "white")
-    .attr("stroke-width", d => (state.selectedService && d.service === state.selectedService) ? 1.5 : 1)
+    .on("mousemove", (event) => moveTooltip(event))
+    .on("mouseleave", function () {
+      d3.select(this).style("filter", "none");
+      hideTooltip();
+      renderPointStyles();
+    })
+    .on("click", (event, d) => {
+      event.stopPropagation();
+      // toggle service selection
+      const svc = d.service;
+      dispatch({ type: "SET_SELECTED_SERVICE", value: svc });
+    });
+
+  renderPointStyles();
+
+  // -------------------- brush (custom rectangle brush like your linked version) --------------------
+  const brushState = { start: null, moved: false };
+
+  // background to catch clicks
+  const bg = refs.brushLayer.append("rect")
+    .attr("class", "brush-bg")
+    .attr("width", width)
+    .attr("height", height)
+    .style("fill", "transparent")
+    .style("cursor", "crosshair");
+
+  bg.on("click", () => {
+    if (!brushState.moved) clearSelection();
+  });
+  bg.on("dblclick", () => clearSelection());
+
+  bg.call(
+    d3.drag()
+      .on("start", (event) => {
+        brushState.start = d3.pointer(event, refs.root.node());
+        brushState.moved = false;
+        refs.brushLayer.selectAll(".brush-rect").remove();
+      })
+      .on("drag", (event) => {
+        const p = d3.pointer(event, refs.root.node());
+        const dx = p[0] - brushState.start[0];
+        const dy = p[1] - brushState.start[1];
+        if (dx * dx + dy * dy > 9) brushState.moved = true;
+
+        const x0 = Math.max(0, Math.min(brushState.start[0], p[0]));
+        const x1 = Math.min(width, Math.max(brushState.start[0], p[0]));
+        const y0 = Math.max(0, Math.min(brushState.start[1], p[1]));
+        const y1 = Math.min(height, Math.max(brushState.start[1], p[1]));
+
+        refs.brushLayer.selectAll(".brush-rect").remove();
+        refs.brushLayer.append("rect")
+          .attr("class", "brush-rect")
+          .attr("x", x0)
+          .attr("y", y0)
+          .attr("width", x1 - x0)
+          .attr("height", y1 - y0)
+          .style("fill", SELECT_ORANGE)
+          .style("fill-opacity", 0.14)
+          .style("stroke", SELECT_ORANGE)
+          .style("stroke-width", 2);
+
+        const selected = new Set();
+        for (const d of points) {
+          if (d.__xPx >= x0 && d.__xPx <= x1 && d.__yPx >= y0 && d.__yPx <= y1) {
+            selected.add(pointId(d));
+          }
+        }
+        refs.selectionIds = selected;
+        renderPointStyles();
+      })
+      .on("end", () => {
+        refs.brushLayer.selectAll(".brush-rect").remove();
+
+        if (hasSelection()) {
+          const weeks = [];
+          for (const d of points) {
+            if (refs.selectionIds.has(pointId(d))) weeks.push(+d.week);
+          }
+          const minW = d3.min(weeks);
+          const maxW = d3.max(weeks);
+          if (Number.isFinite(minW) && Number.isFinite(maxW)) {
+            dispatch({ type: "SET_TIME_RANGE", value: [minW, maxW] });
+          }
+        }
+      })
+  );
+
+  // -------------------- Clear button (inside plot) --------------------
+  const clearBtn = refs.uiLayer.append("g")
+    .attr("transform", `translate(${width - 110}, -6)`)
+    .style("cursor", "pointer")
+    .on("click", (event) => {
+      event.stopPropagation();
+      clearSelection();
+    });
+
+  clearBtn.append("rect")
+    .attr("width", 105)
+    .attr("height", 22)
+    .attr("rx", 6)
+    .attr("ry", 6)
+    .style("fill", "#ffffff")
+    .style("stroke", "#d0d7de")
+    .style("stroke-width", 1);
+
+  clearBtn.append("text")
+    .attr("x", 52.5)
+    .attr("y", 15)
+    .attr("text-anchor", "middle")
+    .style("font-size", "11px")
+    .style("font-weight", "700")
+    .style("fill", "#2d3436")
+    .text("Clear brush");
+
+  // -------------------- Interactive legend --------------------
+  // Events legend: toggles selectedEventType
+  const legendY = height + 10;
+  const legend = refs.uiLayer.append("g").attr("transform", `translate(0,${legendY})`);
+
+  const events = ["donation", "flu", "strike", "none"];
+  const eventLegend = legend.append("g").attr("class", "legend-events");
+
+  eventLegend.append("text")
+    .attr("x", 0)
+    .attr("y", 26)
+    .style("font-size", "11px")
+    .style("fill", "#666")
+    .text("Event:");
+
+  const evItems = eventLegend.selectAll("g.ev")
+    .data(events)
+    .join("g")
+    .attr("class", "ev")
+    .attr("transform", (d, i) => `translate(${50 + i * 92}, 14)`)
     .style("cursor", "pointer")
     .on("click", (event, d) => {
-      refs.dispatch({ type: "SET_SELECTED_SERVICE", value: d.service });
-    })
-    .on("mouseover", (event, d) => {
-      tooltip.style("opacity", 1)
-        .html(`
-          <strong>${prettyService(d.service)}</strong> — Week ${d.week}<br>
-          <span style="color:#666">Event:</span> ${(d.eventType || "none").toUpperCase()}<br>
-          <span style="color:#666">${xVar}:</span> ${d3.format(".1%")(+d[xVar])}<br>
-          <span style="color:#666">${metricLabel}:</span> ${fmt(+d[metric], 2)}<br>
-          <span style="color:#666">Refusals:</span> ${fmt(+d.refusals, 0)} •
-          <span style="color:#666">Morale:</span> ${fmt(+d.morale, 1)} •
-          <span style="color:#666">Occ:</span> ${d3.format(".1%")(+d.occupancy)}
-        `)
-        .style("left", (event.pageX + 10) + "px")
-        .style("top", (event.pageY - 20) + "px");
-    })
-    .on("mousemove", (event) => {
-      tooltip
-        .style("left", (event.pageX + 10) + "px")
-        .style("top", (event.pageY - 20) + "px");
-    })
-    .on("mouseout", () => tooltip.style("opacity", 0));
+      event.stopPropagation();
+      const cur = state.selectedEventType ? normEvent(state.selectedEventType) : null;
+      dispatch({ type: "SET_SELECTED_EVENT_TYPE", value: (cur === d ? null : d) });
+    });
 
-  // Optional reference line for "typical" outcome (median)
-  const medY = d3.median(points, d => d.__y);
-  if (Number.isFinite(medY)) {
-    pointsG.append("line")
-      .attr("x1", 0).attr("x2", width)
-      .attr("y1", y(medY)).attr("y2", y(medY))
-      .attr("stroke", "#636e72")
-      .attr("stroke-dasharray", "4 4")
-      .attr("opacity", 0.35);
-  }
+  evItems.append("circle")
+    .attr("cx", 0)
+    .attr("cy", 10)
+    .attr("r", 5)
+    .attr("fill", d => EVENT_COLORS[d] || EVENT_COLORS.none)
+    .attr("stroke", d => {
+      const cur = state.selectedEventType ? normEvent(state.selectedEventType) : null;
+      return (cur === d) ? SELECT_ORANGE : "#ffffff";
+    })
+    .attr("stroke-width", d => {
+      const cur = state.selectedEventType ? normEvent(state.selectedEventType) : null;
+      return (cur === d) ? 2 : 1;
+    });
+
+  evItems.append("text")
+    .attr("x", 10)
+    .attr("y", 14)
+    .style("font-size", "11px")
+    .style("fill", "#2d3436")
+    .text(d => d);
+
+  // Services legend: toggles selectedService
+  const services = Object.keys(SERVICE_COLORS);
+  const svcLegend = legend.append("g").attr("class", "legend-services").attr("transform", `translate(0,40)`);
+
+  svcLegend.append("text")
+    .attr("x", 0)
+    .attr("y", 14)
+    .style("font-size", "11px")
+    .style("fill", "#666")
+    .text("Service:");
+
+  const svcItems = svcLegend.selectAll("g.svc")
+    .data(services)
+    .join("g")
+    .attr("class", "svc")
+    .attr("transform", (d, i) => `translate(${60 + i * 130}, 2)`)
+    .style("cursor", "pointer")
+    .on("click", (event, d) => {
+      event.stopPropagation();
+      const cur = state.selectedService ? String(state.selectedService) : null;
+      dispatch({ type: "SET_SELECTED_SERVICE", value: (cur === d ? null : d) });
+    });
+
+  svcItems.append("rect")
+    .attr("x", 0)
+    .attr("y", 4)
+    .attr("width", 12)
+    .attr("height", 12)
+    .attr("rx", 3)
+    .attr("ry", 3)
+    .attr("fill", "#fff")
+    .attr("stroke", d => {
+      const cur = state.selectedService ? String(state.selectedService) : null;
+      return (cur === d) ? SELECT_ORANGE : (SERVICE_COLORS[d] || "#bbb");
+    })
+    .attr("stroke-width", d => {
+      const cur = state.selectedService ? String(state.selectedService) : null;
+      return (cur === d) ? 2.5 : 2;
+    });
+
+  svcItems.append("text")
+    .attr("x", 18)
+    .attr("y", 15)
+    .style("font-size", "11px")
+    .style("fill", "#2d3436")
+    .text(d => prettyService(d));
+
+  // end: hide tooltip if mouse leaves chart
+  refs.svg.on("mouseleave", hideTooltip);
 }
 
-// Populate pct* fields
-function populateCompositionDropdown(container, data) {
-  const refs = container.refs;
-  const { select } = refs;
+// -------------------- Dropdown: pct* fields + pct_staff_present --------------------
+function populateCompositionDropdown(container, globalData) {
+  const refs = container._scatter;
+  const select = refs.select;
 
-  const rows = Array.isArray(data.serviceWeeklyStaff) ? data.serviceWeeklyStaff : [];
-  const sample = rows[0] || {};
+  const raw =
+    Array.isArray(globalData?.task3Data) ? globalData.task3Data :
+    Array.isArray(globalData?.serviceWeeklyStaff) ? globalData.serviceWeeklyStaff :
+    [];
 
-  const candidates = Object.keys(sample).filter(k => k.startsWith("pct"));
-  const fallback = ["pctDoctor", "pctNurse", "pctSenior", "pctTemp"];
+  const sample = raw[0] || {};
+  const keys = Object.keys(sample);
 
-  const fields = candidates.length ? candidates : fallback;
+  // Always include pct_staff_present if present or likely for your task
+  const fields = [];
+  if (keys.includes("pct_staff_present")) fields.push("pct_staff_present");
+
+  // include pct* composition fields
+  const pctFields = keys.filter(k => k.startsWith("pct") && k !== "pct_staff_present").sort();
+  for (const k of pctFields) fields.push(k);
+
+  // fallback if nothing exists
+  if (!fields.length) fields.push("pct_staff_present");
 
   select.selectAll("option")
     .data(fields)
     .join("option")
     .attr("value", d => d)
-    .text(d => d);
+    .text(d => (d === "pct_staff_present" ? "pct_staff_present (staff present %)" : d));
 
-  refs.xVar = fields[0] || null;
+  // default selection
+  refs.xVar = fields[0];
   select.property("value", refs.xVar);
-}
-
-// helpers
-function fmt(v, digits = 2) {
-  const x = +v;
-  if (!Number.isFinite(x)) return "—";
-  return x.toFixed(digits);
-}
-
-function prettyService(s) {
-  if (!s) return "—";
-  return String(s).replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
 }

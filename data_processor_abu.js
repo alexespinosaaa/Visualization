@@ -1,17 +1,15 @@
 /**
- * UNIFIED DATA PROCESSOR (OPTION A FIXED - CANONICAL SERVICE NAMES)
+ * UNIFIED DATA PROCESSOR (OPTION A - CANONICAL SERVICES + CORRECT EVENTS)
  *
- * ✅ FIXES:
- * 1) Canonicalize service names across ALL inputs (services_weekly, staff_schedule, staff master)
- *    to match your visualizations' SERVICE_COLORS + legends:
- *      Emergency, Surgery, General_Medicine, ICU
+ * ✅ Services canonicalized to match chart SERVICE_COLORS:
+ *    Emergency, Surgery, General_Medicine, ICU
  *
- * 2) Canonicalize event names to match your visual mappings (none/flu/Other)
+ * ✅ Events canonicalized to ONLY:
+ *    flu, strike, donation, none
  *
- * Why you were "still not recognizing":
- * - Your charts expect "Emergency"/"General_Medicine" etc,
- *   but your data was "emergency"/"general_medicine"/"general_m".
- * - That breaks staff lookup keys AND legend filters.
+ * Why this matters:
+ * - Scatter/PCP legends & filters depend on exact strings.
+ * - If processor emits "Other" or "normal", your colors/filters break.
  */
 
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
@@ -25,7 +23,6 @@ function normalizeService(raw) {
   if (lower.includes("emerg")) return "Emergency";
   if (lower.includes("surg")) return "Surgery";
 
-  // general medicine variants
   if (
     lower === "general_medicine" ||
     lower === "general medicine" ||
@@ -36,16 +33,33 @@ function normalizeService(raw) {
     return "General_Medicine";
   }
 
-  // fallback: keep trimmed original
   return s;
 }
 
-/** Normalize event values to: none | flu | Other */
+/**
+ * ✅ Normalize event values to ONLY:
+ * donation | strike | flu | none
+ *
+ * - trims whitespace
+ * - case-insensitive
+ * - unknowns become "none" (safe default)
+ */
 function normalizeEvent(raw) {
   const e = String(raw ?? "").trim().toLowerCase();
-  if (!e || e === "none" || e === "normal") return "none";
+
+  if (!e) return "none";
+  if (e === "none") return "none";
+
+  // accept some common variants safely
   if (e === "flu" || e.includes("influenza")) return "flu";
-  return "Other";
+  if (e === "strike" || e.includes("walkout")) return "strike";
+  if (e === "donation" || e.includes("donat")) return "donation";
+
+  // if your CSV ever used "normal", treat it as none
+  if (e === "normal") return "none";
+
+  // everything else: none (so charts never see unexpected categories)
+  return "none";
 }
 
 /**
@@ -63,7 +77,7 @@ export function processAllData(servicesWeeklyCSV, staffScheduleCSV, staffMasterC
   const finalData = _addStressScoresAndValidate(serviceWeeklyData);
   console.log("✅ Final dataset ready:", finalData.length, "records");
 
-  // quick sanity check (remove later if you want)
+  // sanity checks (safe to keep)
   console.log("🔎 Unique services:", [...new Set(finalData.map(d => d.service))].sort());
   console.log("🔎 Unique events:", [...new Set(finalData.map(d => d.event))].sort());
 
@@ -74,16 +88,14 @@ export function processAllData(servicesWeeklyCSV, staffScheduleCSV, staffMasterC
 // PHASE 1: STAFF SCHEDULE PROCESSING
 // ============================================================================
 function _computeStaffPresenceMetrics(staffScheduleCSV, staffMasterCSV) {
-  // Step 1: Get total staff per service (baseline denominator)
   const staffSource = staffMasterCSV && staffMasterCSV.length > 0 ? staffMasterCSV : staffScheduleCSV;
 
   const staffByService = d3.rollup(
     staffSource,
     v => new Set(v.map(d => String(d.staff_id))).size,
-    d => normalizeService(d.service) // ✅ IMPORTANT
+    d => normalizeService(d.service)
   );
 
-  // Step 2: Collect all unique roles (for consistent column generation)
   const allRoles = Array.from(
     new Set(
       staffScheduleCSV
@@ -94,29 +106,24 @@ function _computeStaffPresenceMetrics(staffScheduleCSV, staffMasterCSV) {
 
   console.log("   Roles found:", allRoles);
 
-  // Step 3: Compute presence + composition per (week, service)
   const presenceByWeekService = d3.rollup(
     staffScheduleCSV,
     (groupRows) => {
       const week = +groupRows[0].week;
-      const service = normalizeService(groupRows[0].service); // ✅ IMPORTANT
+      const service = normalizeService(groupRows[0].service);
       const totalAssigned = staffByService.get(service) || 0;
 
-      // Filter to present staff only
       const presentRows = groupRows.filter(d => +d.present === 1);
       const presentCount = presentRows.length;
 
-      // Compute presence rate
       const staffPresenceRate = totalAssigned > 0 ? presentCount / totalAssigned : 0;
 
-      // Count roles among PRESENT staff
       const roleCounts = d3.rollup(
         presentRows,
         vv => vv.length,
         d => String(d.role || "").trim().toLowerCase()
       );
 
-      // Build role percentage object
       const pctByRole = {};
       for (const role of allRoles) {
         const count = roleCounts.get(role) || 0;
@@ -128,15 +135,14 @@ function _computeStaffPresenceMetrics(staffScheduleCSV, staffMasterCSV) {
         service,
         totalAssignedStaff: totalAssigned,
         staffPresentCount: presentCount,
-        staffPresenceRate: Math.round(staffPresenceRate * 10000) / 10000, // 4 decimals
+        staffPresenceRate: Math.round(staffPresenceRate * 10000) / 10000,
         ...pctByRole
       };
     },
     d => +d.week,
-    d => normalizeService(d.service) // ✅ IMPORTANT
+    d => normalizeService(d.service)
   );
 
-  // Return as flat array for easier lookup
   const result = [];
   for (const [week, byService] of presenceByWeekService) {
     for (const [service, metrics] of byService) {
@@ -151,66 +157,59 @@ function _computeStaffPresenceMetrics(staffScheduleCSV, staffMasterCSV) {
 // PHASE 2: ENRICH SERVICES_WEEKLY DATA
 // ============================================================================
 function _enrichServiceWeeklyData(servicesWeeklyCSV, staffPresenceData) {
-  // Build lookup map: week-service → staff metrics
   const staffLookup = new Map();
   for (const row of staffPresenceData) {
     const key = `${row.week}_${row.service}`;
     staffLookup.set(key, row);
   }
 
-  // Enrich each service-week row
   return servicesWeeklyCSV.map(d => {
     const week = +d.week;
-    const service = normalizeService(d.service); // ✅ IMPORTANT (Option A)
+    const service = normalizeService(d.service);
     const available_beds = +d.available_beds;
     const patients_admitted = +d.patients_admitted;
     const patients_refused = +d.patients_refused;
 
-    // Base fields
     const base = {
       week,
       month: +d.month || Math.ceil(week / 4.33),
       service,
-      event: normalizeEvent(d.event), // ✅ normalized
 
-      // Service capacity & demand
+      // ✅ now only donation/strike/flu/none
+      event: normalizeEvent(d.event),
+
       available_beds,
       patients_admitted,
       patients_refused,
       patients_request: +d.patients_request,
       occupancy: available_beds > 0 ? patients_admitted / available_beds : 0,
 
-      // Staff & patient outcomes
       staff_morale: +d.staff_morale || 65,
       patient_satisfaction: +d.patient_satisfaction || 75
     };
 
-    // Look up staff metrics for this week-service
     const staffKey = `${week}_${service}`;
     const staffMetrics = staffLookup.get(staffKey);
 
     if (!staffMetrics) {
-      // No staff data for this week-service → fill defaults
       return {
         ...base,
         totalAssignedStaff: 0,
         staffPresentCount: 0,
         staffPresenceRate: 0,
-        pct_staff_present: 0, // For Task 3 scatterplot
+        pct_staff_present: 0,
         pctDoctor: 0,
         pctNurse: 0,
         pctTechnician: 0
       };
     }
 
-    // Merge base + staff metrics
     return {
       ...base,
       totalAssignedStaff: staffMetrics.totalAssignedStaff,
       staffPresentCount: staffMetrics.staffPresentCount,
       staffPresenceRate: staffMetrics.staffPresenceRate,
-      pct_staff_present: staffMetrics.staffPresenceRate * 100, // Convert to 0-100 for Task 3
-      // Keep your original 3 role fields (even if more roles exist)
+      pct_staff_present: staffMetrics.staffPresenceRate * 100,
       pctDoctor: staffMetrics.pctDoctor || 0,
       pctNurse: staffMetrics.pctNurse || 0,
       pctTechnician: staffMetrics.pctTechnician || 0
@@ -227,10 +226,8 @@ function _addStressScoresAndValidate(serviceWeeklyData) {
       const morale = +d.staff_morale;
       const refusals = +d.patients_refused;
 
-      // Binary stress: low morale + high refusals
       const stress_score = (morale < 60 && refusals > 100) ? 1 : 0;
 
-      // Continuous stress level for opacity encoding in PCP
       const stress_level =
         (morale < 50 && refusals > 150) ? "high" :
         (morale < 60 && refusals > 100) ? "moderate" :
@@ -240,7 +237,6 @@ function _addStressScoresAndValidate(serviceWeeklyData) {
         ...d,
         stress_score,
         stress_level,
-        // Ensure all numeric fields are valid
         week: Math.max(1, Math.min(52, +d.week || 1)),
         available_beds: Math.max(0, +d.available_beds || 0),
         patients_refused: Math.max(0, +d.patients_refused || 0),
@@ -248,6 +244,7 @@ function _addStressScoresAndValidate(serviceWeeklyData) {
         patient_satisfaction: Math.max(60, Math.min(99, +d.patient_satisfaction || 75)),
         occupancy: Math.max(0, Math.min(1, +d.occupancy || 0)),
         pct_staff_present: Math.max(0, Math.min(100, +d.pct_staff_present || 0)),
+
         // keep canonical text fields clean
         service: normalizeService(d.service),
         event: normalizeEvent(d.event)

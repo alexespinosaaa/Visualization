@@ -1,31 +1,39 @@
-// main.js - FIXED: legacy-view compatibility + unified processor (Option A layout)
+// main.js - ABU ONLY + TWO SCATTER VIEWS (Task3 + Task4) + case-insensitive filters
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
 import {
-  processAllData,
+  processAllData as processABU,
+  getTask1Data,
+  getTask2Data,
   getTask3Data,
   getTask5Data
-} from "./data_processor_unified.js";
+} from "./data_processor_abu.js";
 
 import * as CalendarView from "./view-calendar.js";
 import * as TimeSeriesView from "./view-timeseries.js";
 import * as EventImpactView from "./view-event-impact.js";
-import * as ScatterplotView from "./view-scatterplot-linked.js";
+
+// ✅ Task 3 scatter (6D linked scatter)
+import * as ScatterTask3View from "./view-scatterplot-linked.js";
+
+// ✅ Task 4 scatter (dropdown + density + brush)
+import * as ScatterTask4View from "./view-scatter.js";
+
 import * as PCPView from "./view-pcp.js";
 
-// -------------------- STATE (use legacy metric names!) --------------------
+// -------------------- STATE (legacy metric names) --------------------
 let state = {
   selectedWeek: null,
   selectedService: null,
   selectedEventType: null,
   timeRange: null,
-  metric: "refusals",     // ✅ must match what views expect
+  metric: "refusals",
   stressOnly: false,
   zoomTransform: null
 };
 window.__dashState = state;
 
-// -------------------- DATA PATHS (based on your repo screenshot) --------------------
+// -------------------- DATA PATHS --------------------
 const DATA_DIR = "./Hospital Beds Management/";
 const SERVICES_CSV = DATA_DIR + "services_weekly.csv";
 const STAFF_SCHEDULE_CSV = DATA_DIR + "staff_schedule.csv";
@@ -34,30 +42,59 @@ const STAFF_CSV = DATA_DIR + "staff.csv";
 // -------------------- GLOBAL DATA --------------------
 let globalData = {};
 
+// -------------------- NORMALIZERS (filters only) --------------------
+function normStr(x) {
+  return String(x ?? "").trim().toLowerCase();
+}
+
+function normEvent(x) {
+  const e = normStr(x);
+  if (!e) return "";
+  if (e === "none" || e === "normal") return "none";
+  if (e.includes("flu") || e.includes("influenza")) return "flu";
+  if (e.includes("strike") || e.includes("walkout")) return "strike";
+  if (e.includes("donat")) return "donation";
+  return e;
+}
+
+function normService(x) {
+  const s = normStr(x);
+  if (!s) return "";
+  if (s === "icu") return "icu";
+  if (s.includes("emerg")) return "emergency";
+  if (s.includes("surg")) return "surgery";
+  if (s.includes("general") && s.includes("med")) return "general_medicine";
+  if (s === "general_medicine" || s === "general medicine" || s === "general_med" || s === "general_m") return "general_medicine";
+  return s;
+}
+
 // -------------------- FILTERS --------------------
 function applyFilters(rows) {
   let out = rows;
 
   if (state.selectedService) {
-    out = out.filter(d => String(d.service) === String(state.selectedService));
+    const targetService = normService(state.selectedService);
+    out = out.filter(d => normService(d.service) === targetService);
   }
+
   if (state.selectedEventType) {
-    out = out.filter(d => String(d.event) === String(state.selectedEventType));
+    const targetEvent = normEvent(state.selectedEventType);
+    out = out.filter(d => normEvent(d.event) === targetEvent);
   }
+
   if (state.stressOnly) {
     out = out.filter(d => +d.stress_score === 1);
   }
+
   if (state.timeRange && Array.isArray(state.timeRange) && state.timeRange.length === 2) {
     const [a, b] = state.timeRange;
     out = out.filter(d => +d.week >= +a && +d.week <= +b);
   }
+
   return out;
 }
 
 // -------------------- LEGACY SHAPE ADAPTER --------------------
-// Builds the EXACT fields your current views expect:
-// - hospitalWeekly: [{week, month, refusals, morale, occupancy, satisfaction, eventType}]
-// - serviceWeekly : [{week, service, refusals, morale, occupancy, satisfaction, eventType}]
 function buildLegacyDatasets(serviceWeeklyDataFiltered) {
   const hospitalWeekly = d3.flatRollup(
     serviceWeeklyDataFiltered,
@@ -66,16 +103,17 @@ function buildLegacyDatasets(serviceWeeklyDataFiltered) {
       const morale = d3.mean(group, d => +d.staff_morale);
       const satisfaction = d3.mean(group, d => +d.patient_satisfaction);
       const occupancy = d3.mean(group, d => +d.occupancy);
-      const eventType = group.map(d => d.event).find(e => e && e !== "none") || "none";
-
-      return { refusals, morale, satisfaction, occupancy, eventType };
+      const eventType = group.map(d => d.event).find(e => e && normEvent(e) !== "none") || "none";
+      return { refusals, morale, satisfaction, occupancy, eventType: normEvent(eventType) || "none" };
     },
     d => +d.week
-  ).map(([week, m]) => ({
-    week: +week,
-    month: Math.ceil(+week / 4.33),
-    ...m
-  })).sort((a, b) => a.week - b.week);
+  )
+    .map(([week, m]) => ({
+      week: +week,
+      month: Math.ceil(+week / 4.33),
+      ...m
+    }))
+    .sort((a, b) => a.week - b.week);
 
   const serviceWeekly = serviceWeeklyDataFiltered.map(d => ({
     week: +d.week,
@@ -83,26 +121,48 @@ function buildLegacyDatasets(serviceWeeklyDataFiltered) {
     service: String(d.service),
     eventType: String(d.event || "none"),
 
-    // legacy metric names:
+    // legacy metric names
     refusals: +d.patients_refused,
     morale: +d.staff_morale,
     occupancy: +d.occupancy,
     satisfaction: +d.patient_satisfaction,
 
-    // keep extra context (harmless)
+    // keep extra context
     stress_level: d.stress_level,
-    stress_score: +d.stress_score
+    stress_score: +d.stress_score,
+
+    // pct fields if present
+    ...Object.fromEntries(Object.entries(d).filter(([k]) => k.startsWith("pct")))
   }));
 
   return { hospitalWeekly, serviceWeekly };
 }
 
-// -------------------- SAFE UPDATE --------------------
+// -------------------- BUILD Task4 DATASET (serviceWeeklyStaff) --------------------
+// view-scatter.js expects rows like:
+// { week, service, eventType, occupancy, refusals, morale, satisfaction, pct*... }
+function buildServiceWeeklyStaff(legacyServiceWeekly) {
+  return legacyServiceWeekly.map(d => ({
+    week: +d.week,
+    service: d.service,
+    eventType: normEvent(d.eventType || "none") || "none",
+
+    occupancy: +d.occupancy,
+    refusals: +d.refusals,
+    morale: +d.morale,
+    satisfaction: +d.satisfaction,
+
+    ...Object.fromEntries(Object.entries(d).filter(([k]) => k.startsWith("pct")))
+  }));
+}
+
+// -------------------- SAFE WRAPPER --------------------
 function safe(name, fn) {
   try { fn(); }
   catch (e) { console.error(`❌ ${name} failed:`, e); }
 }
 
+// -------------------- VIEW UPDATES --------------------
 function updateAllViews() {
   if (!globalData || !globalData.hospitalWeekly) return;
 
@@ -118,8 +178,14 @@ function updateAllViews() {
     EventImpactView.update(document.getElementById("view-events"), globalData, state, dispatch)
   );
 
-  safe("ScatterplotView.update", () =>
-    ScatterplotView.update(document.getElementById("view-scatterplot"), globalData, state, dispatch)
+  // ✅ Task 3 scatter
+  safe("ScatterTask3View.update", () =>
+    ScatterTask3View.update(document.getElementById("view-scatterplot"), globalData, state, dispatch)
+  );
+
+  // ✅ Task 4 scatter (IMPORTANT: update signature is (container, data, state))
+  safe("ScatterTask4View.update", () =>
+    ScatterTask4View.update(document.getElementById("view-scatter"), globalData, state)
   );
 
   safe("PCPView.update", () =>
@@ -147,7 +213,6 @@ function dispatch(action) {
       break;
 
     case "SET_METRIC":
-      // IMPORTANT: must be one of: refusals, morale, occupancy, satisfaction
       state.metric = action.value;
       break;
 
@@ -174,18 +239,22 @@ function dispatch(action) {
 
   window.__dashState = state;
 
-  // rebuild all derived datasets from the stored full dataset
   if (globalData._fullServiceWeeklyData) {
     const filtered = applyFilters(globalData._fullServiceWeeklyData);
     const legacy = buildLegacyDatasets(filtered);
 
-    globalData.serviceWeeklyData = filtered; // unified base (optional)
+    globalData.serviceWeeklyData = filtered;
 
-    // ✅ what the legacy views need:
+    // legacy views data
     globalData.hospitalWeekly = legacy.hospitalWeekly;
     globalData.serviceWeekly = legacy.serviceWeekly;
 
-    // ✅ what the new views need:
+    // ✅ Task 4 scatter input
+    globalData.serviceWeeklyStaff = buildServiceWeeklyStaff(legacy.serviceWeekly);
+
+    // task data
+    globalData.task1Data = getTask1Data(filtered);
+    globalData.task2Data = getTask2Data(filtered);
     globalData.task3Data = getTask3Data(filtered);
     globalData.task5Data = getTask5Data(filtered);
   }
@@ -211,7 +280,9 @@ async function init() {
     if (!servicesRows?.length) throw new Error(`services_weekly.csv empty or not found: ${SERVICES_CSV}`);
     if (!staffScheduleRows?.length) throw new Error(`staff_schedule.csv empty or not found: ${STAFF_SCHEDULE_CSV}`);
 
-    const full = processAllData(servicesRows, staffScheduleRows, staffRows);
+    // ✅ Process EVERYTHING with ABU processor
+    const full = processABU(servicesRows, staffScheduleRows, staffRows);
+
     const filtered = applyFilters(full);
     const legacy = buildLegacyDatasets(filtered);
 
@@ -219,25 +290,47 @@ async function init() {
       _fullServiceWeeklyData: full,
       serviceWeeklyData: filtered,
 
-      // ✅ REQUIRED by your current view files:
+      // legacy views
       hospitalWeekly: legacy.hospitalWeekly,
       serviceWeekly: legacy.serviceWeekly,
 
-      // ✅ NEW views:
+      // ✅ Task 4 scatter input
+      serviceWeeklyStaff: buildServiceWeeklyStaff(legacy.serviceWeekly),
+
+      // task data
+      task1Data: getTask1Data(filtered),
+      task2Data: getTask2Data(filtered),
       task3Data: getTask3Data(filtered),
       task5Data: getTask5Data(filtered)
     };
 
     // init views
-    safe("CalendarView.init", () => CalendarView.init(document.getElementById("view-calendar"), globalData, state, dispatch));
-    safe("TimeSeriesView.init", () => TimeSeriesView.init(document.getElementById("view-timeseries"), globalData, state, dispatch));
-    safe("EventImpactView.init", () => EventImpactView.init(document.getElementById("view-events"), globalData, state, dispatch));
-    safe("ScatterplotView.init", () => ScatterplotView.init(document.getElementById("view-scatterplot"), globalData, state, dispatch));
-    safe("PCPView.init", () => PCPView.init(document.getElementById("view-pcp"), globalData, state, dispatch));
+    safe("CalendarView.init", () =>
+      CalendarView.init(document.getElementById("view-calendar"), globalData, state, dispatch)
+    );
+    safe("TimeSeriesView.init", () =>
+      TimeSeriesView.init(document.getElementById("view-timeseries"), globalData, state, dispatch)
+    );
+    safe("EventImpactView.init", () =>
+      EventImpactView.init(document.getElementById("view-events"), globalData, state, dispatch)
+    );
+
+    // ✅ Task 3 scatter init
+    safe("ScatterTask3View.init", () =>
+      ScatterTask3View.init(document.getElementById("view-scatterplot"), globalData, state, dispatch)
+    );
+
+    // ✅ Task 4 scatter init (IMPORTANT: init signature is (container, data, state, dispatch))
+    safe("ScatterTask4View.init", () =>
+      ScatterTask4View.init(document.getElementById("view-scatter"), globalData, state, dispatch)
+    );
+
+    safe("PCPView.init", () =>
+      PCPView.init(document.getElementById("view-pcp"), globalData, state, dispatch)
+    );
 
     updateAllViews();
     console.log("✅ Initialization complete.");
-
   } catch (error) {
     console.error("❌ Error during initialization:", error);
 

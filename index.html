@@ -1,4 +1,3 @@
-<!-- index.html (Option A: calendar + timeseries full row + violin full row + scatter + pcp) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,31 +100,26 @@
     }
 
     /* ---------------------------
-       GRID (UPDATED)
-       - Calendar full width
-       - Timeseries full width (own row)
-       - Violin full width (own row)
-       - Scatter full width
-       - PCP full width
+       GRID (Task 4 removed)
        --------------------------- */
     .grid{
       display:grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       grid-template-areas:
-        "calendar calendar"
-        "timeseries timeseries"
-        "events events"
-        "scatterplot scatterplot"
-        "pcp pcp";
+        "calendar"
+        "timeseries"
+        "events"
+        "scatterplot"
+        "pcp";
       gap: var(--gap);
       align-items: start;
     }
 
-    /* IMPORTANT: keep these IDs exactly — main.js depends on them */
+    /* IMPORTANT: IDs must match main.js */
     #view-calendar{ grid-area: calendar; }
     #view-timeseries{ grid-area: timeseries; }
     #view-events{ grid-area: events; }
-    #view-scatterplot{ grid-area: scatterplot; }
+    #view-scatterplot{ grid-area: scatterplot; } /* Task 3 scatter */
     #view-pcp{ grid-area: pcp; }
 
     /* ---------------------------
@@ -136,23 +130,18 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding: var(--pad);
-      position: relative;
       overflow: hidden;
-
-      /* crucial: panels are flex columns so views can fill height */
       display: flex;
       flex-direction: column;
+      min-width: 0;
     }
 
-    /* Calendar header + metric buttons remain in HTML (heatmap unchanged) */
     .panel-header{
       display:flex;
       justify-content:space-between;
       align-items:flex-end;
       gap: 10px;
-      margin-bottom: 8px;
-      padding-bottom: 8px;
+      padding: 12px 12px 10px 12px;
       border-bottom: 1px solid rgba(229,231,235,0.9);
       flex: 0 0 auto;
     }
@@ -209,7 +198,12 @@
       border: 1px solid rgba(17,24,39,0.08);
     }
 
-    /* Calendar summary row (kept) */
+    .panel-body{
+      padding: 12px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
     .summary-row{
       display:flex;
       align-items:center;
@@ -220,6 +214,7 @@
       border-top: 1px dashed rgba(229,231,235,0.95);
       flex: 0 0 auto;
     }
+
     .summary-left{
       font-size: 12px;
       color: var(--muted);
@@ -230,16 +225,15 @@
       line-height: 1.15rem;
     }
 
-    /* Systematic sizing: panels get height, view svgs will fill */
-    #view-calendar{ min-height: 220px; }
-    #view-timeseries{ min-height: 220px; }
-    #view-events{ min-height: 220px; }
+    /* Heights */
+    #view-calendar{ min-height: 240px; }
+    #view-timeseries{ min-height: 240px; }
+    #view-events{ min-height: 240px; }
     #view-scatterplot{ min-height: 560px; }
     #view-pcp{ min-height: 560px; }
 
-    /* Tooltip (global) */
     .chart-tooltip{
-      position: absolute;
+      position: fixed;
       background: rgba(255,255,255,0.97);
       padding: 10px;
       border-radius: 10px;
@@ -261,26 +255,14 @@
       .header-right{
         justify-content: space-between;
       }
-      .grid{
-        grid-template-columns: 1fr;
-        grid-template-areas:
-          "calendar"
-          "timeseries"
-          "events"
-          "scatterplot"
-          "pcp";
-      }
-      #view-calendar{ min-height: 260px; }
-      #view-timeseries{ min-height: 240px; }
-      #view-events{ min-height: 500px; }
+      #view-scatterplot{ min-height: 520px; }
+      #view-pcp{ min-height: 520px; }
     }
   </style>
 </head>
 
 <body>
   <div class="dashboard">
-
-    <!-- STICKY HEADER -->
     <header>
       <div class="header-left">
         <h1>Hospital Risk Explorer</h1>
@@ -292,10 +274,9 @@
       </div>
     </header>
 
-    <!-- GRID -->
     <div class="grid">
 
-      <!-- TASK 1: CALENDAR (kept “as-is”) -->
+      <!-- TASK 1: CALENDAR -->
       <div class="panel" id="view-calendar">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -303,30 +284,39 @@
             <div class="panel-subtitle">Central context: click week to drive all views</div>
           </div>
           <div class="btn-group" id="metric-controls">
-            <button class="btn active" onclick="setMetric('refusals')">Refusals</button>
-            <button class="btn" onclick="setMetric('morale')">Morale</button>
-            <button class="btn" onclick="setMetric('occupancy')">Occupancy</button>
-            <button class="btn" onclick="setMetric('satisfaction')">Satisfaction</button>
+            <button class="btn active" data-metric="refusals">Refusals</button>
+            <button class="btn" data-metric="morale">Morale</button>
+            <button class="btn" data-metric="occupancy">Occupancy</button>
+            <button class="btn" data-metric="satisfaction">Satisfaction</button>
           </div>
         </div>
 
-        <!-- SVG injected by view-calendar.js -->
-        <div class="summary-row" id="selection-summary" aria-hidden="true">
-          <div class="summary-left" id="summary-left"></div>
+        <div class="panel-body">
+          <div class="summary-row" id="selection-summary" aria-hidden="true">
+            <div class="summary-left" id="summary-left"></div>
+          </div>
         </div>
       </div>
 
-      <!-- TASK 1: TIMESERIES (now empty shell; view renders its own header/controls like PCP/Scatter) -->
-      <div class="panel" id="view-timeseries"></div>
+      <!-- TASK 1: TIMESERIES -->
+      <div class="panel" id="view-timeseries">
+        <div class="panel-body"></div>
+      </div>
 
-      <!-- TASK 2: EVENT IMPACT (now empty shell; view renders its own header/controls like PCP/Scatter) -->
-      <div class="panel" id="view-events"></div>
+      <!-- TASK 2: EVENT IMPACT -->
+      <div class="panel" id="view-events">
+        <div class="panel-body"></div>
+      </div>
 
       <!-- TASK 3: SCATTERPLOT -->
-      <div class="panel" id="view-scatterplot"></div>
+      <div class="panel" id="view-scatterplot">
+        <div class="panel-body"></div>
+      </div>
 
       <!-- TASK 5: PCP -->
-      <div class="panel" id="view-pcp"></div>
+      <div class="panel" id="view-pcp">
+        <div class="panel-body"></div>
+      </div>
 
     </div>
   </div>
@@ -336,11 +326,16 @@
   <script type="module" src="./main.js"></script>
 
   <script>
-    function setMetric(m) {
-      document.querySelectorAll('#metric-controls .btn').forEach(b => b.classList.remove('active'));
-      event.target.classList.add('active');
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest("#metric-controls .btn");
+      if (!btn) return;
+
+      document.querySelectorAll("#metric-controls .btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const m = btn.getAttribute("data-metric");
       window.dispatch({ type: "SET_METRIC", value: m });
-    }
+    });
   </script>
 </body>
 </html>
