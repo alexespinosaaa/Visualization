@@ -1,4 +1,4 @@
-<!-- index.html (responsive panels + correct IDs for main.js) -->
+<!-- index.html (Option A: calendar + timeseries full row + violin full row + scatter + pcp) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,14 +101,20 @@
     }
 
     /* ---------------------------
-       GRID (Option A)
+       GRID (UPDATED)
+       - Calendar full width
+       - Timeseries full width (own row)
+       - Violin full width (own row)
+       - Scatter full width
+       - PCP full width
        --------------------------- */
     .grid{
       display:grid;
-      grid-template-columns: 1.05fr 0.95fr;
+      grid-template-columns: 1fr 1fr;
       grid-template-areas:
         "calendar calendar"
-        "timeseries events"
+        "timeseries timeseries"
+        "events events"
         "scatterplot scatterplot"
         "pcp pcp";
       gap: var(--gap);
@@ -134,11 +140,12 @@
       position: relative;
       overflow: hidden;
 
-      /* KEY: make panel a column-flex so charts can fill */
+      /* crucial: panels are flex columns so views can fill height */
       display: flex;
       flex-direction: column;
     }
 
+    /* Calendar header + metric buttons remain in HTML (heatmap unchanged) */
     .panel-header{
       display:flex;
       justify-content:space-between;
@@ -169,12 +176,6 @@
       font-size: 12px;
       color: var(--muted);
       line-height: 1.05rem;
-    }
-
-    .hint{
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
     }
 
     .btn-group{
@@ -208,7 +209,7 @@
       border: 1px solid rgba(17,24,39,0.08);
     }
 
-    /* Selection summary under calendar */
+    /* Calendar summary row (kept) */
     .summary-row{
       display:flex;
       align-items:center;
@@ -228,40 +229,15 @@
       gap: 8px;
       line-height: 1.15rem;
     }
-    .summary-pill{
-      display:inline-flex;
-      align-items:center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(229,231,235,0.95);
-      background: #fff;
-      color: var(--ink);
-      box-shadow: 0 1px 4px rgba(17,24,39,0.05);
-      font-weight: 800;
-      font-size: 12px;
-    }
-    .summary-pill .k{
-      color: var(--muted);
-      font-weight: 900;
-    }
 
-    /* Systematic sizing: give panels enough height; views will auto-fill */
+    /* Systematic sizing: panels get height, view svgs will fill */
     #view-calendar{ min-height: 280px; }
-    #view-timeseries{ min-height: 420px; }
-    #view-events{ min-height: 420px; }
+    #view-timeseries{ min-height: 620px; }
+    #view-events{ min-height: 520px; }
     #view-scatterplot{ min-height: 560px; }
     #view-pcp{ min-height: 560px; }
 
-    /* Let any svg inside panel expand */
-    .panel svg{
-      width: 100%;
-      height: 100%;
-      display: block;
-      flex: 1 1 auto;
-      min-height: 0; /* important for flex overflow */
-    }
-
+    /* Tooltip (global) */
     .chart-tooltip{
       position: absolute;
       background: rgba(255,255,255,0.97);
@@ -295,7 +271,8 @@
           "pcp";
       }
       #view-calendar{ min-height: 260px; }
-      #view-timeseries, #view-events{ min-height: 380px; }
+      #view-timeseries{ min-height: 440px; }
+      #view-events{ min-height: 500px; }
     }
   </style>
 </head>
@@ -318,7 +295,7 @@
     <!-- GRID -->
     <div class="grid">
 
-      <!-- TASK 1: CALENDAR -->
+      <!-- TASK 1: CALENDAR (kept “as-is”) -->
       <div class="panel" id="view-calendar">
         <div class="panel-header">
           <div class="panel-header-left">
@@ -339,39 +316,17 @@
         </div>
       </div>
 
-      <!-- TASK 1: TIMESERIES -->
-      <div class="panel" id="view-timeseries">
-        <div class="panel-header">
-          <div class="panel-header-left">
-            <div class="panel-title">2. Time Series Focus</div>
-            <div class="panel-subtitle">Brush range + click week for details</div>
-          </div>
-          <div class="hint"><strong>Scroll</strong> zoom • <strong>Drag</strong> brush • <strong>Click</strong> select</div>
-        </div>
-        <!-- SVG injected by view-timeseries.js -->
-      </div>
+      <!-- TASK 1: TIMESERIES (now empty shell; view renders its own header/controls like PCP/Scatter) -->
+      <div class="panel" id="view-timeseries"></div>
 
-      <!-- TASK 2: EVENT IMPACT -->
-      <div class="panel" id="view-events">
-        <div class="panel-header">
-          <div class="panel-header-left">
-            <div class="panel-title">3. Event Impact</div>
-            <div class="panel-subtitle">Distribution shifts in selected time window</div>
-          </div>
-          <div class="hint"><strong>Click</strong> event filter • <strong>Alt-click</strong> clear</div>
-        </div>
-        <!-- SVG injected by view-event-impact.js -->
-      </div>
+      <!-- TASK 2: EVENT IMPACT (now empty shell; view renders its own header/controls like PCP/Scatter) -->
+      <div class="panel" id="view-events"></div>
 
       <!-- TASK 3: SCATTERPLOT -->
-      <div class="panel" id="view-scatterplot">
-        <!-- view-scatterplot-linked.js renders its own controls inside -->
-      </div>
+      <div class="panel" id="view-scatterplot"></div>
 
       <!-- TASK 5: PCP -->
-      <div class="panel" id="view-pcp">
-        <!-- view-pcp.js renders its own controls inside -->
-      </div>
+      <div class="panel" id="view-pcp"></div>
 
     </div>
   </div>
@@ -386,9 +341,6 @@
       event.target.classList.add('active');
       window.dispatch({ type: "SET_METRIC", value: m });
     }
-
-    // (Optional) If you later re-enable chips/summary watchers, keep them here.
-    // Your current working version may already populate #summary-left elsewhere.
   </script>
 </body>
 </html>
