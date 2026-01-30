@@ -85,7 +85,7 @@ function _createScatterStructure(svgElement) {
     .style("width", "100%")
     .style("flex", "1")
     .style("background-color", "#ffffff")
-    .style("min-height", "600px");
+    .style("min-height", "300px");
 
   wrapper
     .append("div")
@@ -153,9 +153,9 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const svgNode = svg.node();
     let width = svgNode?.clientWidth || 1000;
-    let height = svgNode?.clientHeight || 600;
+    let height = svgNode?.clientHeight || 300;
     if (width < 100) width = 1000;
-    if (height < 600) height = 600;
+    if (height < 300) height = 300;
 
     const margin = { top: 20, right: 30, bottom: 50, left: 70 };
     const plotWidth = width - margin.left - margin.right;
