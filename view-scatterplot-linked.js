@@ -1,13 +1,19 @@
 /**
  * TASK 3: Scatterplot Explorer - Staff Composition vs Performance
  *
- * FIXES / IMPROVEMENTS:
- * - Selection stored by STABLE ID (not array index) so it won't "select different things" after state changes
- * - Brush layer BEHIND points so hover + tooltip always work
- * - Bulletproof clear: click empty area (no-drag click), double-click, ESC
- * - No tooltip leaks: singleton tooltip, no global mousemove handlers
+ * CHANGES ADDED:
+ * ✅ X-axis uses LINEAR scale (0–100)
+ * ✅ Deterministic X-JITTER (stable per point)
+ * ✅ Jitter is SLIGHTLY WIDER near extremes (near 0% and 100%) to reduce overplotting
+ * ✅ “Clear brush” button inside the plot (top-right)
+ *
+ * Other fixes kept:
+ * - Stable selection IDs (not index)
+ * - Brush layer behind points (hover works)
+ * - Clear selection: click empty area (no-drag click), double-click, ESC, or button
+ * - Singleton tooltip (no leaks)
  * - Selected points highlight ORANGE; unselected fade
- * - Safer pointer math via d3.pointer
+ * - Robust pointer math via d3.pointer
  */
 
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
@@ -34,7 +40,7 @@ export function init(svgElement, globalData, state, dispatch) {
     globalData,
     state,
     dispatch,
-    brushSelectionIds: new Set(), // <-- stable selection
+    brushSelectionIds: new Set(),
     xScale: null,
     yScale: null,
     tooltipEl: null,
@@ -67,13 +73,12 @@ function _createScatterStructure(svgElement) {
       <div>
         <strong style="color: #2c3e50; font-size: 14px;">Task 3: Scatterplot Explorer</strong><br>
         <span style="color: #7f8c8d; font-size: 12px;">
-          Drag to select points | Click empty area to clear | Double-click to clear | ESC to clear<br>
+          Drag to select points | Click empty area to clear | Double-click to clear | ESC to clear | Button to clear<br>
           X: Staff Present (%) | Y: Staff Morale | Size: Refusals | Fill: Event | Stroke: Service
         </span>
       </div>
     `);
 
-  // Massive height as requested
   wrapper
     .append("svg")
     .attr("class", "scatter-chart")
@@ -94,12 +99,46 @@ function _createScatterStructure(svgElement) {
     .style("gap", "20px");
 }
 
-// Stable ID generator: use a combination that is unlikely to collide
+// Stable ID generator: if you have d.id, use that instead.
 function pointId(d) {
-  // IMPORTANT: if you have a true unique ID in your dataset (e.g., d.id), use that instead.
   const p = Number.isFinite(+d.pct_staff_present) ? (+d.pct_staff_present).toFixed(2) : "na";
   const o = Number.isFinite(+d.occupancy) ? (+d.occupancy).toFixed(3) : "na";
   return `${d.week}__${d.service}__${d.event}__${p}__${d.staff_morale}__${d.patients_refused}__${o}`;
+}
+
+// deterministic 0..1 hash
+function hash01(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967295;
+}
+
+/**
+ * Deterministic x-jitter in px:
+ * - Base spread ~12px
+ * - Slightly wider near extremes (0% and 100%) up to ~20px
+ *
+ * You can tune:
+ * - baseSpreadPx
+ * - extraSpreadPx
+ * - extremeBandPct
+ */
+function xJitterPx(d) {
+  const xPct = +d.pct_staff_present;
+  const baseSpreadPx = 12;  // typical total width
+  const extraSpreadPx = 8;  // added near extremes (so total up to 20)
+  const extremeBandPct = 8; // within 8% of either edge we widen
+
+  // edgeProximity: 1 at the edge, 0 at/beyond band boundary
+  const distToEdge = Math.min(xPct, 100 - xPct); // 0..50
+  const edgeProximity = Math.max(0, 1 - distToEdge / extremeBandPct); // 0..1
+
+  const spread = baseSpreadPx + extraSpreadPx * edgeProximity; // 12..20
+  const t = hash01(pointId(d)) - 0.5; // -0.5..0.5
+  return t * spread;
 }
 
 export function update(svgElement, globalData, state, dispatch) {
@@ -115,7 +154,6 @@ export function update(svgElement, globalData, state, dispatch) {
     const svgNode = svg.node();
     let width = svgNode?.clientWidth || 1000;
     let height = svgNode?.clientHeight || 800;
-
     if (width < 100) width = 1000;
     if (height < 600) height = 800;
 
@@ -124,43 +162,27 @@ export function update(svgElement, globalData, state, dispatch) {
     const plotHeight = height - margin.top - margin.bottom;
 
     svg.selectAll("*").remove();
-
     svg.attr("viewBox", `0 0 ${width} ${height}`).attr("preserveAspectRatio", "xMidYMid meet");
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Layers (order matters): brush BEHIND points so points keep hover/mouse events
+    // Layers: brush behind points
     const gridLayer = g.append("g").attr("class", "layer-grid");
     const axesLayer = g.append("g").attr("class", "layer-axes");
-    const brushLayer = g.append("g").attr("class", "layer-brush"); // behind
-    const pointsLayer = g.append("g").attr("class", "layer-points"); // on top
+    const brushLayer = g.append("g").attr("class", "layer-brush");
+    const pointsLayer = g.append("g").attr("class", "layer-points");
 
     const scatterState = svgElement._scatterState;
 
     // ========== SCALES ==========
-    const xExtent = d3.extent(data, (d) => +d.pct_staff_present);
+    // ✅ Linear scale for X to match distribution and avoid weird warping
+    const xScale = d3.scaleLinear().domain([0, 100]).range([0, plotWidth]).clamp(true);
+
     const yExtent = d3.extent(data, (d) => +d.staff_morale);
-
-    const xMin = Math.max(0, xExtent?.[0] ?? 0);
-    const xMax = Math.min(100, xExtent?.[1] ?? 100);
-
     const yMin = Math.max(30, (yExtent?.[0] ?? 30) - 5);
     const yMax = Math.min(100, (yExtent?.[1] ?? 100) + 5);
 
-    const xScale = d3
-      .scalePow()
-      .exponent(0.5)
-      .domain([xMin, xMax])
-      .range([0, plotWidth])
-      .nice()
-      .clamp(true);
-
-    const yScale = d3
-      .scaleLinear()
-      .domain([yMin, yMax])
-      .range([plotHeight, 0])
-      .nice()
-      .clamp(true);
+    const yScale = d3.scaleLinear().domain([yMin, yMax]).range([plotHeight, 0]).nice().clamp(true);
 
     const sizeScale = d3
       .scaleSqrt()
@@ -192,7 +214,9 @@ export function update(svgElement, globalData, state, dispatch) {
           if (hasSelection()) return isSelected(d) ? opacityScale(+d.patient_satisfaction) : 0.08;
           return opacityScale(+d.patient_satisfaction);
         })
-        .style("stroke", (d) => (hasSelection() && isSelected(d) ? SELECT_COLOR : SERVICE_COLORS[d.service] || "#95a5a6"))
+        .style("stroke", (d) =>
+          hasSelection() && isSelected(d) ? SELECT_COLOR : SERVICE_COLORS[d.service] || "#95a5a6"
+        )
         .style("stroke-width", (d) => (hasSelection() && isSelected(d) ? 3 : 2))
         .style("filter", (d) =>
           hasSelection() && isSelected(d) ? "drop-shadow(0 0 3px rgba(255, 140, 0, 0.45))" : "none"
@@ -215,11 +239,7 @@ export function update(svgElement, globalData, state, dispatch) {
       });
     }
 
-    // ========== AXES ==========
-    const xAxis = d3.axisBottom(xScale).ticks(12).tickFormat((d) => `${d}%`);
-    const yAxis = d3.axisLeft(yScale).ticks(15);
-
-    // Grid
+    // ========== GRID ==========
     gridLayer
       .append("g")
       .attr("class", "grid")
@@ -227,6 +247,10 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("stroke-dasharray", "2,4")
       .style("opacity", 0.3)
       .call(d3.axisLeft(yScale).tickSize(-plotWidth).tickFormat(""));
+
+    // ========== AXES ==========
+    const xAxis = d3.axisBottom(xScale).ticks(10).tickFormat((d) => `${d}%`);
+    const yAxis = d3.axisLeft(yScale).ticks(15);
 
     const xAxisGroup = axesLayer
       .append("g")
@@ -261,7 +285,38 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", "#2c3e50")
       .text("Staff Morale");
 
-    // ========== TOOLTIP (singleton, no leaks) ==========
+    // ========== Clear Brush Button (inside plot) ==========
+    const clearBtn = g
+      .append("g")
+      .attr("class", "clear-brush-btn")
+      .attr("transform", `translate(${plotWidth - 120}, 8)`)
+      .style("cursor", "pointer")
+      .on("click", (event) => {
+        event.stopPropagation();
+        clearSelection();
+      });
+
+    clearBtn
+      .append("rect")
+      .attr("width", 110)
+      .attr("height", 26)
+      .attr("rx", 6)
+      .attr("ry", 6)
+      .style("fill", "#ffffff")
+      .style("stroke", "#bdc3c7")
+      .style("stroke-width", 1);
+
+    clearBtn
+      .append("text")
+      .attr("x", 55)
+      .attr("y", 17)
+      .attr("text-anchor", "middle")
+      .style("font-size", "12px")
+      .style("font-weight", "600")
+      .style("fill", "#2c3e50")
+      .text("Clear brush");
+
+    // ========== TOOLTIP (singleton) ==========
     const getTooltip = () => {
       if (scatterState.tooltipEl && document.body.contains(scatterState.tooltipEl.node())) return scatterState.tooltipEl;
 
@@ -324,12 +379,13 @@ export function update(svgElement, globalData, state, dispatch) {
       .data(data, (d) => pointId(d))
       .join("circle")
       .attr("class", "point")
-      .attr("cx", (d) => xScale(+d.pct_staff_present))
+      .attr("cx", (d) => xScale(+d.pct_staff_present) + xJitterPx(d))
       .attr("cy", (d) => yScale(+d.staff_morale))
       .attr("r", (d) => sizeScale(+d.patients_refused))
       .style("fill", (d) => EVENT_COLORS[d.event] || EVENT_COLORS.none)
       .style("cursor", "default")
       .on("mouseenter", function (event, d) {
+        // Keep tooltip/hover separate from selection highlight; selection re-applies on leave
         d3.select(this).style("filter", "drop-shadow(0 0 4px rgba(0,0,0,0.35))");
         showTooltip(event, d);
       })
@@ -337,19 +393,15 @@ export function update(svgElement, globalData, state, dispatch) {
         moveTooltip(event);
       })
       .on("mouseleave", function () {
-        // restore selection style filter (if selected) via renderSelectionStyles()
         d3.select(this).style("filter", "none");
         hideTooltip();
         renderSelectionStyles();
       });
 
-    // Apply styles after join
     renderSelectionStyles();
-
-    // Hide tooltip if leaving the SVG quickly
     svg.on("mouseleave", hideTooltip);
 
-    // ========== BRUSH (robust + clear behavior) ==========
+    // ========== BRUSH ==========
     const brushState = { start: null, moved: false };
 
     const brushBg = brushLayer
@@ -360,11 +412,10 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", "transparent")
       .style("cursor", "crosshair");
 
-    // Clear on click if user did NOT actually drag (simple 3px threshold)
+    // Click-to-clear only if the user didn't drag
     brushBg.on("click", () => {
       if (!brushState.moved) clearSelection();
     });
-
     brushBg.on("dblclick", () => clearSelection());
 
     brushBg.call(
@@ -379,7 +430,7 @@ export function update(svgElement, globalData, state, dispatch) {
           const p = d3.pointer(event, g.node());
           const dx = p[0] - brushState.start[0];
           const dy = p[1] - brushState.start[1];
-          if (dx * dx + dy * dy > 9) brushState.moved = true; // >3px movement
+          if (dx * dx + dy * dy > 9) brushState.moved = true; // >3px
 
           const x0 = Math.max(0, Math.min(brushState.start[0], p[0]));
           const x1 = Math.min(plotWidth, Math.max(brushState.start[0], p[0]));
@@ -399,24 +450,20 @@ export function update(svgElement, globalData, state, dispatch) {
             .style("stroke", SELECT_COLOR)
             .style("stroke-width", 2);
 
-          // Compute selected IDs
+          // IMPORTANT: selection test should use the SAME jittered x used for plotting
           const selectedIds = new Set();
           for (const d of data) {
-            const cx = xScale(+d.pct_staff_present);
+            const cx = xScale(+d.pct_staff_present) + xJitterPx(d);
             const cy = yScale(+d.staff_morale);
-            if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) {
-              selectedIds.add(pointId(d));
-            }
+            if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) selectedIds.add(pointId(d));
           }
 
           scatterState.brushSelectionIds = selectedIds;
           renderSelectionStyles();
         })
         .on("end", () => {
-          // Remove rectangle (you can keep it if you want persistent visual box)
           brushLayer.selectAll("rect.brush-rect").remove();
 
-          // If there is a selection, dispatch linked filter
           if (hasSelection()) {
             const selectedWeeks = new Set();
             for (const d of data) {
@@ -521,5 +568,15 @@ function _updateScatterLegend(svgElement) {
     </div>
   `;
 
-  legendDiv.html(eventHtml + serviceHtml + sizeHtml + opacityHtml + selectionHtml);
+  const jitterHtml = `
+    <div>
+      <strong style="color: #2c3e50; display: block; margin-bottom: 10px; font-size: 12px;">X Jitter</strong>
+      <span style="font-size: 11px; color: #7f8c8d;">
+        Points are jittered slightly in X to reduce overlap.<br>
+        Jitter widens near 0% and 100%.
+      </span>
+    </div>
+  `;
+
+  legendDiv.html(eventHtml + serviceHtml + sizeHtml + opacityHtml + selectionHtml + jitterHtml);
 }
