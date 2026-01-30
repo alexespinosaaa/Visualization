@@ -22,10 +22,12 @@ import * as ScatterTask4View from "./view-scatter.js";
 import * as PCPView from "./view-pcp.js";
 
 // -------------------- STATE (legacy metric names) --------------------
+// ✅ Minimal change: add selectedStressLevel + allow selectedService to be string OR array
 let state = {
   selectedWeek: null,
-  selectedService: null,
+  selectedService: null,        // string | string[] | null
   selectedEventType: null,
+  selectedStressLevel: null,    // "low" | "moderate" | "high" | null
   timeRange: null,
   metric: "refusals",
   stressOnly: false,
@@ -68,13 +70,29 @@ function normService(x) {
   return s;
 }
 
+// ✅ Service matcher that supports string OR array (minimal change)
+function serviceMatches(rowService, selectedService) {
+  if (!selectedService) return true;
+
+  const rowNorm = normService(rowService);
+
+  // array -> match any
+  if (Array.isArray(selectedService)) {
+    const set = new Set(selectedService.map(normService));
+    return set.has(rowNorm);
+  }
+
+  // string -> match exact
+  return rowNorm === normService(selectedService);
+}
+
 // -------------------- FILTERS --------------------
 function applyFilters(rows) {
   let out = rows;
 
+  // ✅ multi-service support
   if (state.selectedService) {
-    const targetService = normService(state.selectedService);
-    out = out.filter(d => normService(d.service) === targetService);
+    out = out.filter(d => serviceMatches(d.service, state.selectedService));
   }
 
   if (state.selectedEventType) {
@@ -82,6 +100,13 @@ function applyFilters(rows) {
     out = out.filter(d => normEvent(d.event) === targetEvent);
   }
 
+  // ✅ NEW: stress level filter from PCP legend (independent of "stressOnly")
+  if (state.selectedStressLevel) {
+    const target = normStr(state.selectedStressLevel);
+    out = out.filter(d => normStr(d.stress_level) === target);
+  }
+
+  // existing: stressOnly means stress_score === 1
   if (state.stressOnly) {
     out = out.filter(d => +d.stress_score === 1);
   }
@@ -139,8 +164,6 @@ function buildLegacyDatasets(serviceWeeklyDataFiltered) {
 }
 
 // -------------------- BUILD Task4 DATASET (serviceWeeklyStaff) --------------------
-// view-scatter.js expects rows like:
-// { week, service, eventType, occupancy, refusals, morale, satisfaction, pct*... }
 function buildServiceWeeklyStaff(legacyServiceWeekly) {
   return legacyServiceWeekly.map(d => ({
     week: +d.week,
@@ -178,12 +201,11 @@ function updateAllViews() {
     EventImpactView.update(document.getElementById("view-events"), globalData, state, dispatch)
   );
 
-  // ✅ Task 3 scatter
   safe("ScatterTask3View.update", () =>
     ScatterTask3View.update(document.getElementById("view-scatterplot"), globalData, state, dispatch)
   );
 
-  // ✅ Task 4 scatter (IMPORTANT: update signature is (container, data, state))
+  // IMPORTANT: update signature is (container, data, state)
   safe("ScatterTask4View.update", () =>
     ScatterTask4View.update(document.getElementById("view-scatter"), globalData, state)
   );
@@ -200,12 +222,24 @@ function dispatch(action) {
       state.selectedWeek = (state.selectedWeek === action.value) ? null : action.value;
       break;
 
-    case "SET_SELECTED_SERVICE":
-      state.selectedService = (state.selectedService === action.value) ? null : action.value;
+    // ✅ allow string OR array OR null
+    case "SET_SELECTED_SERVICE": {
+      const v = action.value;
+      if (!v || (Array.isArray(v) && v.length === 0)) {
+        state.selectedService = null;
+      } else {
+        state.selectedService = v; // string or array
+      }
       break;
+    }
 
     case "SET_SELECTED_EVENT_TYPE":
       state.selectedEventType = (state.selectedEventType === action.value) ? null : action.value;
+      break;
+
+    // ✅ NEW: used by PCP legend
+    case "SET_SELECTED_STRESS_LEVEL":
+      state.selectedStressLevel = action.value ? String(action.value) : null;
       break;
 
     case "SET_TIME_RANGE":
@@ -229,6 +263,7 @@ function dispatch(action) {
         selectedWeek: null,
         selectedService: null,
         selectedEventType: null,
+        selectedStressLevel: null,
         timeRange: null,
         metric: "refusals",
         stressOnly: false,
@@ -249,7 +284,7 @@ function dispatch(action) {
     globalData.hospitalWeekly = legacy.hospitalWeekly;
     globalData.serviceWeekly = legacy.serviceWeekly;
 
-    // ✅ Task 4 scatter input
+    // Task 4 scatter input
     globalData.serviceWeeklyStaff = buildServiceWeeklyStaff(legacy.serviceWeekly);
 
     // task data
@@ -280,7 +315,6 @@ async function init() {
     if (!servicesRows?.length) throw new Error(`services_weekly.csv empty or not found: ${SERVICES_CSV}`);
     if (!staffScheduleRows?.length) throw new Error(`staff_schedule.csv empty or not found: ${STAFF_SCHEDULE_CSV}`);
 
-    // ✅ Process EVERYTHING with ABU processor
     const full = processABU(servicesRows, staffScheduleRows, staffRows);
 
     const filtered = applyFilters(full);
@@ -294,7 +328,7 @@ async function init() {
       hospitalWeekly: legacy.hospitalWeekly,
       serviceWeekly: legacy.serviceWeekly,
 
-      // ✅ Task 4 scatter input
+      // Task 4 scatter input
       serviceWeeklyStaff: buildServiceWeeklyStaff(legacy.serviceWeekly),
 
       // task data
@@ -314,17 +348,13 @@ async function init() {
     safe("EventImpactView.init", () =>
       EventImpactView.init(document.getElementById("view-events"), globalData, state, dispatch)
     );
-
-    // ✅ Task 3 scatter init
     safe("ScatterTask3View.init", () =>
       ScatterTask3View.init(document.getElementById("view-scatterplot"), globalData, state, dispatch)
     );
-
-    // ✅ Task 4 scatter init (IMPORTANT: init signature is (container, data, state, dispatch))
+    // IMPORTANT: init signature is (container, data, state, dispatch)
     safe("ScatterTask4View.init", () =>
       ScatterTask4View.init(document.getElementById("view-scatter"), globalData, state, dispatch)
     );
-
     safe("PCPView.init", () =>
       PCPView.init(document.getElementById("view-pcp"), globalData, state, dispatch)
     );

@@ -61,13 +61,17 @@ function normalizeEvent(raw) {
 
 // IMPORTANT: stable across Y dropdown switches
 function pointId(d) {
-  const p = Number.isFinite(+d.pct_staff_present) ? (+d.pct_staff_present).toFixed(2) : "na";
-  const o = Number.isFinite(+d.occupancy) ? (+d.occupancy).toFixed(3) : "na";
-  const ev = normalizeEvent(d.event);
-  const m = Number.isFinite(+d.staff_morale) ? (+d.staff_morale).toFixed(0) : "na";
-  const r = Number.isFinite(+d.patients_refused) ? (+d.patients_refused).toFixed(0) : "na";
-  return `${d.week}__${d.service}__${ev}__${p}__${m}__${r}__${o}`;
+  const week = Number.isFinite(+d.week) ? +d.week : "na";
+  const service = String(d.service ?? "na");
+  const event = String(d.event ?? d.eventType ?? "none");
+
+  const refusals = Number.isFinite(+d.patients_refused) ? (+d.patients_refused).toFixed(0) : "na";
+  const morale = Number.isFinite(+d.staff_morale) ? (+d.staff_morale).toFixed(0) : "na";
+  const satis = Number.isFinite(+d.patient_satisfaction) ? (+d.patient_satisfaction).toFixed(0) : "na";
+
+  return `${week}__${service}__${event}__${refusals}__${morale}__${satis}`;
 }
+
 
 // deterministic 0..1 hash
 function hash01(str) {
