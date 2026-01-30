@@ -1,16 +1,21 @@
 /**
  * TASK 3: Scatterplot Explorer - Staff Composition vs Performance
  *
- * NEW:
+ * ✅ NEW:
+ * - Interactive Service legend (toggle / solo / reset)
+ *   - Click service = toggle on/off (multi-select)
+ *   - Shift+Click service = solo that service
+ *   - Double-click service legend header = reset (show all)
+ *   - Inactive services dim in legend + points hidden
+ *
  * ✅ Add dropdown to switch Y between:
  *    - Staff Morale
  *    - Patients Refused
- *   (Task 4 lives inside Task 3 now)
  *
- * FIXES:
- * ✅ Event categories are: donation, none, strike, flu
- * ✅ Removed "Normal" label substitution (none stays "none")
- * ✅ Added event normalization (case/whitespace safe)
+ * ✅ FIXES:
+ * - Event categories are: donation, none, strike, flu
+ * - Removed "Normal" label substitution (none stays "none")
+ * - Added event normalization (case/whitespace safe)
  *
  * Existing features kept:
  * - Linear X scale (0–100)
@@ -39,7 +44,6 @@ const SERVICE_COLORS = {
 
 const SELECT_COLOR = "#ff8c00";
 
-// --- Dropdown config (Task 4 under Task 3) ---
 const Y_OPTIONS = [
   { key: "staff_morale", label: "Staff Morale" },
   { key: "patients_refused", label: "Patients Refused" },
@@ -52,16 +56,14 @@ function normalizeEvent(raw) {
   if (e === "strike") return "strike";
   if (e === "flu") return "flu";
   if (e === "none" || e === "normal") return "none";
-  // unknowns fall back to "none" color
   return e;
 }
 
-// Stable ID generator (IMPORTANT: do NOT depend on yMetric, so selection stays stable when switching Y)
+// IMPORTANT: stable across Y dropdown switches
 function pointId(d) {
   const p = Number.isFinite(+d.pct_staff_present) ? (+d.pct_staff_present).toFixed(2) : "na";
   const o = Number.isFinite(+d.occupancy) ? (+d.occupancy).toFixed(3) : "na";
   const ev = normalizeEvent(d.event);
-  // include both fields so uniqueness is stable across dropdown
   const m = Number.isFinite(+d.staff_morale) ? (+d.staff_morale).toFixed(0) : "na";
   const r = Number.isFinite(+d.patients_refused) ? (+d.patients_refused).toFixed(0) : "na";
   return `${d.week}__${d.service}__${ev}__${p}__${m}__${r}__${o}`;
@@ -92,6 +94,48 @@ function xJitterPx(d) {
   return t * spread;
 }
 
+// ----- Interactive service legend filter helpers -----
+function isServiceActive(scatterState, service) {
+  if (!scatterState.serviceFilter) return true;
+  return scatterState.serviceFilter.has(service);
+}
+
+function toggleService(scatterState, service, { solo = false } = {}) {
+  const all = Object.keys(SERVICE_COLORS);
+
+  if (solo) {
+    // already solo -> reset
+    if (scatterState.serviceFilter && scatterState.serviceFilter.size === 1 && scatterState.serviceFilter.has(service)) {
+      scatterState.serviceFilter = null;
+      return;
+    }
+    scatterState.serviceFilter = new Set([service]);
+    return;
+  }
+
+  // if currently "all" (null), create explicit all-set then toggle
+  if (!scatterState.serviceFilter) {
+    scatterState.serviceFilter = new Set(all);
+  }
+
+  if (scatterState.serviceFilter.has(service)) scatterState.serviceFilter.delete(service);
+  else scatterState.serviceFilter.add(service);
+
+  // if back to all -> reset to null
+  if (scatterState.serviceFilter.size === all.length) {
+    scatterState.serviceFilter = null;
+  }
+
+  // avoid empty dead-end
+  if (scatterState.serviceFilter && scatterState.serviceFilter.size === 0) {
+    scatterState.serviceFilter = null;
+  }
+}
+
+function resetServiceFilter(scatterState) {
+  scatterState.serviceFilter = null;
+}
+
 export function init(svgElement, globalData, state, dispatch) {
   console.log("🎨 Initializing Task 3: Scatterplot Explorer");
 
@@ -104,7 +148,10 @@ export function init(svgElement, globalData, state, dispatch) {
     yScale: null,
     tooltipEl: null,
     keyHandlerAttached: false,
-    yMetric: "staff_morale", // ✅ default (Task 3)
+    yMetric: "staff_morale",
+    serviceFilter: null, // ✅ NEW
+    _ySelect: null,
+    _ySelectHooked: false,
   };
 
   _createScatterStructure(svgElement);
@@ -123,7 +170,7 @@ function _createScatterStructure(svgElement) {
     .style("display", "flex")
     .style("flex-direction", "column");
 
-  // Controls (same style, but now includes dropdown)
+  // Controls row + dropdown
   const controls = wrapper
     .append("div")
     .attr("class", "scatter-controls")
@@ -136,7 +183,6 @@ function _createScatterStructure(svgElement) {
     .style("gap", "16px");
 
   const left = controls.append("div");
-
   left.html(`
     <div>
       <strong style="color: #2c3e50; font-size: 14px;">Task 3: Scatterplot Explorer</strong><br>
@@ -178,7 +224,6 @@ function _createScatterStructure(svgElement) {
     .attr("value", (d) => d.key)
     .text((d) => d.label);
 
-  // store reference for update
   svgElement._scatterState._ySelect = select;
 
   wrapper
@@ -187,7 +232,6 @@ function _createScatterStructure(svgElement) {
     .style("width", "100%")
     .style("flex", "1")
     .style("background-color", "#ffffff")
-    // ✅ keep ~300px
     .style("min-height", "300px");
 
   wrapper
@@ -211,24 +255,21 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const scatterState = svgElement._scatterState;
 
-    // Hook dropdown once (keeps your structure)
+    // hook dropdown once
     if (scatterState._ySelect && !scatterState._ySelectHooked) {
       scatterState._ySelectHooked = true;
-
       scatterState._ySelect
         .property("value", scatterState.yMetric)
         .on("change", function () {
           scatterState.yMetric = this.value;
-          // keep same selection, just redraw
           update(svgElement, globalData, state, dispatch);
         });
     }
 
     const yMetric = scatterState.yMetric || "staff_morale";
-    const yLabel =
-      Y_OPTIONS.find((o) => o.key === yMetric)?.label || "Staff Morale";
+    const yLabel = Y_OPTIONS.find((o) => o.key === yMetric)?.label || "Staff Morale";
 
-    // normalize event on the fly (cheap + safe)
+    // normalize event on the fly
     const data = globalData.task3Data.map((d) => ({ ...d, event: normalizeEvent(d.event) }));
 
     const svg = d3.select(svgElement).select("svg.scatter-chart");
@@ -255,16 +296,14 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const xScale = d3.scaleLinear().domain([0, 100]).range([0, plotWidth]).clamp(true);
 
-    // ✅ Y scale depends on dropdown choice
+    // Y scale depends on dropdown
     const yExtent = d3.extent(data, (d) => +d[yMetric]);
-
     let yScale;
+
     if (yMetric === "patients_refused") {
-      // refusals: start at 0 for readability
       const ymax = Math.max(10, (yExtent?.[1] ?? 10));
       yScale = d3.scaleLinear().domain([0, ymax]).range([plotHeight, 0]).nice().clamp(true);
     } else {
-      // morale: keep your old nice bounds
       const yMin = Math.max(30, (yExtent?.[0] ?? 30) - 5);
       const yMax = Math.min(100, (yExtent?.[1] ?? 100) + 5);
       yScale = d3.scaleLinear().domain([yMin, yMax]).range([plotHeight, 0]).nice().clamp(true);
@@ -285,9 +324,10 @@ export function update(svgElement, globalData, state, dispatch) {
       if (state.selectedWeek && d.week !== state.selectedWeek) return false;
       if (state.selectedEventType && normalizeEvent(d.event) !== normalizeEvent(state.selectedEventType)) return false;
       if (state.stressOnly && d.stress_level !== "high") return false;
-
-      // ✅ if chosen Y is missing, drop point (prevents NaNs breaking the plot)
       if (!Number.isFinite(+d[yMetric])) return false;
+
+      // ✅ legend-driven service filter
+      if (!isServiceActive(scatterState, d.service)) return false;
 
       return true;
     };
@@ -298,8 +338,9 @@ export function update(svgElement, globalData, state, dispatch) {
     const renderSelectionStyles = () => {
       pointsLayer
         .selectAll("circle.point")
+        .style("display", (d) => (passesStateFilters(d) ? null : "none"))
         .style("opacity", (d) => {
-          if (!passesStateFilters(d)) return 0.05;
+          if (!passesStateFilters(d)) return 0;
           if (hasSelection()) return isSelected(d) ? opacityScale(+d.patient_satisfaction) : 0.08;
           return opacityScale(+d.patient_satisfaction);
         })
@@ -373,7 +414,7 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", "#2c3e50")
       .text(yLabel);
 
-    // Clear brush button inside plot
+    // Clear brush button
     const clearBtn = g
       .append("g")
       .attr("class", "clear-brush-btn")
@@ -429,11 +470,7 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const showTooltip = (event, d) => {
       const tooltip = getTooltip();
-
-      const yVal =
-        yMetric === "patients_refused"
-          ? `${(+d.patients_refused).toFixed(0)}`
-          : `${(+d.staff_morale).toFixed(0)}`;
+      const yVal = yMetric === "patients_refused" ? `${(+d.patients_refused).toFixed(0)}` : `${(+d.staff_morale).toFixed(0)}`;
 
       tooltip
         .html(`
@@ -480,6 +517,7 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("fill", (d) => EVENT_COLORS[normalizeEvent(d.event)] || EVENT_COLORS.none)
       .style("cursor", "default")
       .on("mouseenter", function (event, d) {
+        if (!passesStateFilters(d)) return;
         d3.select(this).style("filter", "drop-shadow(0 0 4px rgba(0,0,0,0.35))");
         showTooltip(event, d);
       })
@@ -512,7 +550,8 @@ export function update(svgElement, globalData, state, dispatch) {
     brushBg.on("dblclick", () => clearSelection());
 
     brushBg.call(
-      d3.drag()
+      d3
+        .drag()
         .on("start", (event) => {
           brushState.start = d3.pointer(event, g.node());
           brushState.moved = false;
@@ -544,7 +583,7 @@ export function update(svgElement, globalData, state, dispatch) {
 
           const selectedIds = new Set();
           for (const d of data) {
-            // selection uses the same jittered x and same y metric
+            if (!passesStateFilters(d)) continue; // ✅ respect service filter + state filters
             const cx = xScale(+d.pct_staff_present) + xJitterPx(d);
             const cy = yScale(+d[yMetric]);
             if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) selectedIds.add(pointId(d));
@@ -569,13 +608,14 @@ export function update(svgElement, globalData, state, dispatch) {
         })
     );
 
-    _updateScatterLegend(svgElement);
+    _updateScatterLegend(svgElement, globalData, state, dispatch);
   } catch (error) {
     console.error("❌ Error in Scatter update:", error);
   }
 }
 
-function _updateScatterLegend(svgElement) {
+function _updateScatterLegend(svgElement, globalData, state, dispatch) {
+  const scatterState = svgElement._scatterState;
   const legendDiv = d3.select(svgElement).select(".scatter-legend");
   legendDiv.selectAll("*").remove();
 
@@ -585,8 +625,9 @@ function _updateScatterLegend(svgElement) {
     <div>
       <strong style="color: #2c3e50; display: block; margin-bottom: 10px; font-size: 12px;">Event Type (Fill Color)</strong>
       ${eventOrder
-        .filter(e => EVENT_COLORS[e])
-        .map((event) => `
+        .filter((e) => EVENT_COLORS[e])
+        .map(
+          (event) => `
           <div style="display: flex; align-items: center; margin: 6px 0;">
             <span style="
               display: inline-block;
@@ -599,30 +640,81 @@ function _updateScatterLegend(svgElement) {
             "></span>
             <span style="font-size: 11px; color: #2c3e50;">${event}</span>
           </div>
-        `).join("")}
+        `
+        )
+        .join("")}
     </div>
   `;
 
-  const serviceHtml = `
-    <div>
-      <strong style="color: #2c3e50; display: block; margin-bottom: 10px; font-size: 12px;">Service Type (Border Color)</strong>
-      ${Object.entries(SERVICE_COLORS)
-        .map(([service, color]) => `
-          <div style="display: flex; align-items: center; margin: 6px 0;">
-            <span style="
-              display: inline-block;
-              width: 12px;
-              height: 12px;
-              border: 2px solid ${color};
-              border-radius: 50%;
-              background-color: white;
-              margin-right: 8px;
-            "></span>
-            <span style="font-size: 11px; color: #2c3e50;">${service.replaceAll("_", " ")}</span>
-          </div>
-        `).join("")}
-    </div>
-  `;
+  // --- Service legend: interactive (D3-built, not HTML string) ---
+  const serviceWrap = legendDiv
+    .append("div")
+    .style("user-select", "none");
+
+  const serviceHeader = serviceWrap
+    .append("strong")
+    .style("color", "#2c3e50")
+    .style("display", "block")
+    .style("margin-bottom", "10px")
+    .style("font-size", "12px")
+    .style("cursor", "pointer")
+    .text("Service Type (Border Color) — click to filter • Shift+click to solo • dblclick to reset")
+    .on("dblclick", () => {
+      resetServiceFilter(scatterState);
+      update(svgElement, globalData, state, dispatch);
+    });
+
+  const services = Object.keys(SERVICE_COLORS);
+
+  const items = serviceWrap
+    .selectAll("div.service-item")
+    .data(services)
+    .enter()
+    .append("div")
+    .attr("class", "service-item")
+    .style("display", "flex")
+    .style("align-items", "center")
+    .style("margin", "6px 0")
+    .style("cursor", "pointer")
+    .on("click", (event, service) => {
+      const solo = !!event.shiftKey;
+      toggleService(scatterState, service, { solo });
+      update(svgElement, globalData, state, dispatch);
+    });
+
+  items
+    .append("span")
+    .style("display", "inline-block")
+    .style("width", "12px")
+    .style("height", "12px")
+    .style("border", (d) => `2px solid ${SERVICE_COLORS[d]}`)
+    .style("border-radius", "50%")
+    .style("background-color", "white")
+    .style("margin-right", "8px");
+
+  items
+    .append("span")
+    .style("font-size", "11px")
+    .style("color", "#2c3e50")
+    .text((service) => service.replaceAll("_", " "));
+
+  // Apply active/inactive styling
+  const applyLegendStyles = () => {
+    const anyFilter = !!scatterState.serviceFilter;
+    items
+      .style("opacity", (service) => {
+        if (!anyFilter) return 1;
+        return scatterState.serviceFilter.has(service) ? 1 : 0.25;
+      })
+      .style("filter", (service) => {
+        if (!anyFilter) return "none";
+        return scatterState.serviceFilter.has(service) ? "drop-shadow(0 0 3px rgba(0,0,0,0.12))" : "none";
+      });
+
+    serviceHeader
+      .style("opacity", anyFilter ? 1 : 0.95);
+  };
+  applyLegendStyles();
 
   const sizeHtml = `
     <div>
@@ -664,5 +756,25 @@ function _updateScatterLegend(svgElement) {
     </div>
   `;
 
-  legendDiv.html(eventHtml + serviceHtml + sizeHtml + opacityHtml + selectionHtml + jitterHtml);
+  // Put the non-interactive sections into the grid as HTML blocks
+  // (event block + the other blocks)
+  legendDiv
+    .insert("div", ":first-child")
+    .html(eventHtml);
+
+  legendDiv
+    .append("div")
+    .html(sizeHtml);
+
+  legendDiv
+    .append("div")
+    .html(opacityHtml);
+
+  legendDiv
+    .append("div")
+    .html(selectionHtml);
+
+  legendDiv
+    .append("div")
+    .html(jitterHtml);
 }
