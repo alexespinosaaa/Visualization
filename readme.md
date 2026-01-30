@@ -7,6 +7,8 @@ weeks of a year using multiple coordinated views.
 --------------------------------------------------
 Project Structure
 --------------------------------------------------
+.vscode/
+- settings.json - helps with the live preview of index.html
 
 EDA/
 Contains exploratory notebooks and scripts used during the interim analysis phase.
@@ -34,9 +36,7 @@ Individual visualization modules:
 - view-scatter.js: scatterplot view
 - view-scatterplot-linked.js: linked scatterplot interactions
 - view-pcp.js: parallel coordinates plot
-
-viz-utils.js
-Shared utility functions such as scales, color mappings, and formatting helpers.
+- viz-utils.js: helps with calendar view for utilization
 
 --------------------------------------------------
 What the Dashboard Does
@@ -60,13 +60,17 @@ The dashboard supports coordinated exploration of hospital risk indicators:
 
 All views are coordinated. Interactions in one view update the others.
 
+--------------------------------------------------
 Tools and Environment
+--------------------------------------------------
 
 The project was developed using Visual Studio Code.
-A local web server is required to run the dashboard due to ES module imports.
 
-We used the VS Code Live Server extension to serve the files locally during
-development and testing.
+A local web server is required to run the dashboard due to the use of ES module
+imports in JavaScript.
+
+During development and testing, the VS Code Live Server extension was used to
+serve the project locally.
 
 --------------------------------------------------
 How to Run the Tool
@@ -78,6 +82,8 @@ How to Run the Tool
    Recommended option: VS Code Live Server.
 3. Open index.html through the local server (do not open the file directly).
 4. If data does not load, check file paths and filenames in main.js.
+
+!!!. Right click on the index.html    and click on run with live server after downloading Live Server extension! to get the dashboard in the browser
 
 Detailed setup instructions are available in INSTALL.md.
 
@@ -97,6 +103,19 @@ We implemented:
 
 The code is modular, with each visualization implemented in a separate file and
 documented with comments.
+
+--------------------------------------------------
+Use of AI-Assisted Tools
+--------------------------------------------------
+
+An AI-based assistant was used as a supportive tool during development for:
+- Writing and improving code comments
+- Assisting with color selection and visual design choices
+- Troubleshooting errors and debugging implementation issues
+- General clarification during development
+
+All core logic, data processing, visualization design, and interaction
+implementation were developed by the authors.
 
 --------------------------------------------------
 What We Used From Others
