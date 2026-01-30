@@ -4,14 +4,12 @@ export function init(container, data, state, dispatch) {
   const el = d3.select(container);
   el.selectAll("*").remove();
 
-  // Internal state for this view
   container._tsState = {
     dispatch,
     clipId: `timeline-clip-${Math.random().toString(16).slice(2)}`,
-    refs: null
+    _ro: null
   };
 
-  // Wrapper (same pattern as scatter/pcp)
   const wrapper = el.append("div")
     .attr("class", "timeseries-wrapper")
     .style("width", "100%")
@@ -19,7 +17,6 @@ export function init(container, data, state, dispatch) {
     .style("display", "flex")
     .style("flex-direction", "column");
 
-  // Controls row (title + hint)
   wrapper.append("div")
     .attr("class", "timeseries-controls")
     .style("padding", "12px 14px")
@@ -36,23 +33,19 @@ export function init(container, data, state, dispatch) {
       </div>
     `);
 
-  // SVG area (fills remaining height)
   const svg = wrapper.append("svg")
     .attr("class", "timeseries-chart")
     .style("width", "100%")
-    .style("height", "100%")     // IMPORTANT
+    .style("height", "100%")
     .style("flex", "1")
     .style("min-height", "0")
     .style("display", "block")
     .attr("preserveAspectRatio", "xMidYMid meet");
 
-  // Build static scaffolding once
   _buildScaffold(container, svg);
 
-  // First update AFTER layout settles (important in flex)
   requestAnimationFrame(() => update(container, data, state, dispatch));
 
-  // Re-render on resize (same as “behaves like PCP/Scatter”)
   const ro = new ResizeObserver(() => {
     requestAnimationFrame(() => update(container, data, state, dispatch));
   });
@@ -73,7 +66,6 @@ function _buildScaffold(container, svgSel) {
 
   const root = svgSel.append("g").attr("class", "root");
 
-  // Labels (top)
   svgSel.append("text")
     .attr("class", "label-left")
     .attr("fill", "#e74c3c")
@@ -90,6 +82,13 @@ function _buildScaffold(container, svgSel) {
     .text("Staff Morale →");
 
   const chartArea = root.append("g").attr("class", "chartArea");
+
+  // IMPORTANT: a dedicated capture layer (so zoom does NOT bind to whole svg)
+  chartArea.append("rect")
+    .attr("class", "zoom-capture")
+    .attr("fill", "transparent")
+    .style("pointer-events", "all");
+
   const clipped = chartArea.append("g").attr("class", "clipped");
 
   clipped.append("path").attr("class", "area-refusals")
@@ -113,12 +112,10 @@ function _buildScaffold(container, svgSel) {
     .style("opacity", 0)
     .style("pointer-events", "none");
 
-  // Axes groups
   chartArea.append("g").attr("class", "x-axis");
   chartArea.append("g").attr("class", "y-axis-l");
   chartArea.append("g").attr("class", "y-axis-r");
 
-  // Brush holder
   clipped.append("g").attr("class", "brush");
 }
 
@@ -133,7 +130,6 @@ export function update(container, data, state, dispatch) {
     const svg = d3.select(container).select("svg.timeseries-chart");
     if (svg.empty()) return;
 
-    // ✅ MEASURE FROM WRAPPER, NOT SVG (fixes flex measurement bug)
     const wrapperNode = d3.select(container).select(".timeseries-wrapper").node();
     const controlsNode = d3.select(container).select(".timeseries-controls").node();
     if (!wrapperNode || !controlsNode) return;
@@ -144,38 +140,36 @@ export function update(container, data, state, dispatch) {
     const W = Math.max(320, Math.floor(wrapperRect.width));
     const H = Math.max(280, Math.floor(wrapperRect.height - controlsRect.height));
 
-    // ✅ FORCE SVG PIXEL SIZE + VIEWBOX (fixes clipping)
     svg.attr("width", W).attr("height", H);
     svg.attr("viewBox", `0 0 ${W} ${H}`);
 
-    // Margins tuned so axes never get cut
     const margin = { top: 34, right: 64, bottom: 54, left: 64 };
     const width = Math.max(10, W - margin.left - margin.right);
     const height = Math.max(10, H - margin.top - margin.bottom);
 
-    // Labels
-    svg.select(".label-left")
-      .attr("x", margin.left)
-      .attr("y", 18);
+    svg.select(".label-left").attr("x", margin.left).attr("y", 18);
+    svg.select(".label-right").attr("x", W - margin.right).attr("y", 18);
 
-    svg.select(".label-right")
-      .attr("x", W - margin.right)
-      .attr("y", 18);
-
-    // Root translate
     const root = svg.select("g.root")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Clip rect resize + apply
     const clipId = container._tsState.clipId;
     svg.select(`#${clipId} .clip-rect`)
       .attr("width", width)
       .attr("height", height);
 
-    root.select("g.chartArea g.clipped")
+    const chartArea = root.select("g.chartArea");
+
+    // Resize zoom capture rect to plot area
+    chartArea.select("rect.zoom-capture")
+      .attr("x", 0)
+      .attr("y", 0)
+      .attr("width", width)
+      .attr("height", height);
+
+    chartArea.select("g.clipped")
       .attr("clip-path", `url(#${clipId})`);
 
-    // Scales
     const x = d3.scaleLinear().domain([1, 52]).range([0, width]);
     const yLeft = d3.scaleLinear().range([height, 0]);
     const yRight = d3.scaleLinear().domain([40, 100]).range([height, 0]);
@@ -185,19 +179,17 @@ export function update(container, data, state, dispatch) {
 
     yLeft.domain([0, d3.max(ds, d => +d.refusals) * 1.1]).nice();
 
-    // Axes
-    root.select(".x-axis")
+    chartArea.select(".x-axis")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(newX).ticks(12).tickFormat(d => `W${d}`));
 
-    root.select(".y-axis-l")
+    chartArea.select(".y-axis-l")
       .call(d3.axisLeft(yLeft).ticks(6));
 
-    root.select(".y-axis-r")
+    chartArea.select(".y-axis-r")
       .attr("transform", `translate(${width},0)`)
       .call(d3.axisRight(yRight).ticks(6));
 
-    // Paths
     const area = d3.area()
       .x(d => newX(+d.week))
       .y0(height)
@@ -209,12 +201,11 @@ export function update(container, data, state, dispatch) {
       .y(d => yRight(+d.morale))
       .curve(d3.curveMonotoneX);
 
-    const clipped = root.select("g.chartArea g.clipped");
+    const clipped = chartArea.select("g.clipped");
 
     clipped.select("path.area-refusals").datum(ds).attr("d", area);
     clipped.select("path.line-morale").datum(ds).attr("d", line);
 
-    // Selection line
     const selectionLine = clipped.select("line.selection-line");
     if (state.selectedWeek) {
       selectionLine
@@ -227,7 +218,7 @@ export function update(container, data, state, dispatch) {
       selectionLine.style("opacity", 0);
     }
 
-    // Event icons
+    // ===== Events (unchanged) =====
     const tooltip = d3.select("body").select(".chart-tooltip");
     const eventGroup = clipped.select("g.events");
     const events = ds.filter(d => d.eventType && d.eventType !== "none");
@@ -282,7 +273,7 @@ export function update(container, data, state, dispatch) {
 
     icons.exit().remove();
 
-    // Semantic dots (zoom)
+    // Semantic dots
     const dots = clipped.select("g.semantic-dots");
     if (transform.k > 2) {
       dots.selectAll("circle")
@@ -298,7 +289,7 @@ export function update(container, data, state, dispatch) {
       dots.selectAll("circle").remove();
     }
 
-    // Brush
+    // ===== Brush (FIX: always clear selection after range chosen) =====
     const brushGroup = clipped.select("g.brush");
     brushGroup.selectAll("*").remove();
 
@@ -306,19 +297,23 @@ export function update(container, data, state, dispatch) {
       .extent([[0, 0], [width, height]])
       .on("end", (event) => {
         if (!event.sourceEvent) return;
+
         if (!event.selection) {
           _dispatch({ type: "SET_TIME_RANGE", value: null });
           return;
         }
+
         const [x0, x1] = event.selection;
         const w1 = Math.max(1, Math.min(52, Math.round(newX.invert(x0))));
         const w2 = Math.max(1, Math.min(52, Math.round(newX.invert(x1))));
         _dispatch({ type: "SET_TIME_RANGE", value: [Math.min(w1, w2), Math.max(w1, w2)] });
+
+        // ✅ KEY FIX: clear brush rectangle so it never "sticks"
+        brushGroup.call(brush.move, null);
       });
 
     brushGroup.call(brush);
 
-    // Click to select week
     brushGroup.select(".overlay")
       .style("cursor", "pointer")
       .on("click", (event) => {
@@ -329,18 +324,23 @@ export function update(container, data, state, dispatch) {
         }
       });
 
-    // Zoom
+    // ===== Zoom (FIX: wheel-only, plot-area only) =====
     const zoom = d3.zoom()
       .scaleExtent([1, 8])
       .translateExtent([[0, 0], [width, height]])
       .extent([[0, 0], [width, height]])
+      .filter((event) => {
+        // ✅ only zoom on wheel, no drag-pan, no dblclick zoom
+        return event.type === "wheel";
+      })
       .on("zoom", (event) => {
         if (event.sourceEvent) {
           _dispatch({ type: "SET_ZOOM", value: event.transform });
         }
       });
 
-    svg.call(zoom);
+    // Attach zoom ONLY to the plot-area capture rect
+    chartArea.select("rect.zoom-capture").call(zoom);
 
   } catch (err) {
     console.error("❌ Error in view-timeseries update:", err);
