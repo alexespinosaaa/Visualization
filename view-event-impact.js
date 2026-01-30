@@ -1,15 +1,5 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
-/**
- * Event Impact Distribution Panel
- * Violin plot + stable jitter + median/mean
- *
- * IMPORTANT:
- * - This view expects: data.serviceWeekly (service-week rows)
- * - It uses state.metric as the metric to plot (same behavior as before)
- * - It fills the panel using flex + clientWidth/clientHeight like PCP/Scatter
- */
-
 export function init(container, data, state, dispatch) {
   const el = d3.select(container);
   el.selectAll("*").remove();
@@ -42,11 +32,19 @@ export function init(container, data, state, dispatch) {
   wrapper.append("svg")
     .attr("class", "eventimpact-chart")
     .style("width", "100%")
+    .style("height", "100%")      // IMPORTANT
     .style("flex", "1")
     .style("min-height", "0")
-    .style("display", "block");
+    .style("display", "block")
+    .attr("preserveAspectRatio", "xMidYMid meet");
 
-  update(container, data, state, dispatch);
+  requestAnimationFrame(() => update(container, data, state, dispatch));
+
+  const ro = new ResizeObserver(() => {
+    requestAnimationFrame(() => update(container, data, state, dispatch));
+  });
+  ro.observe(container);
+  container._evState._ro = ro;
 }
 
 export function update(container, data, state, dispatch) {
@@ -60,9 +58,20 @@ export function update(container, data, state, dispatch) {
     const svg = d3.select(container).select("svg.eventimpact-chart");
     if (svg.empty()) return;
 
-    const svgNode = svg.node();
-    const W = Math.max(320, svgNode.clientWidth || 900);
-    const H = Math.max(280, svgNode.clientHeight || 420);
+    // ✅ MEASURE FROM WRAPPER, NOT SVG
+    const wrapperNode = d3.select(container).select(".eventimpact-wrapper").node();
+    const controlsNode = d3.select(container).select(".eventimpact-controls").node();
+    if (!wrapperNode || !controlsNode) return;
+
+    const wrapperRect = wrapperNode.getBoundingClientRect();
+    const controlsRect = controlsNode.getBoundingClientRect();
+
+    const W = Math.max(320, Math.floor(wrapperRect.width));
+    const H = Math.max(280, Math.floor(wrapperRect.height - controlsRect.height));
+
+    // ✅ FORCE SVG PIXEL SIZE + VIEWBOX
+    svg.attr("width", W).attr("height", H);
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
 
     const margin = { top: 24, right: 18, bottom: 34, left: 60 };
     const width = Math.max(10, W - margin.left - margin.right);
@@ -81,7 +90,6 @@ export function update(container, data, state, dispatch) {
       satisfaction: "Patient Satisfaction"
     }[metric] || metric;
 
-    // Update subtitle text (in controls)
     d3.select(container).select(".eventimpact-sub")
       .text(
         state.timeRange
@@ -89,7 +97,6 @@ export function update(container, data, state, dispatch) {
           : `Distribution by event • ${metricLabel} • Click to filter`
       );
 
-    // Filter rows by timeRange (if any)
     const filtered = rows.filter(d => {
       if (state.timeRange && (d.week < state.timeRange[0] || d.week > state.timeRange[1])) return false;
       return Number.isFinite(+d[metric]);
@@ -97,11 +104,9 @@ export function update(container, data, state, dispatch) {
 
     if (!filtered.length) return;
 
-    // Unique event types
     const eventTypes = Array.from(new Set(filtered.map(d => d.eventType))).sort();
     if (!eventTypes.length) return;
 
-    // Y scale over all events
     const y = d3.scaleLinear()
       .domain(d3.extent(filtered, d => +d[metric]))
       .nice()
@@ -112,7 +117,6 @@ export function update(container, data, state, dispatch) {
       .selectAll("text")
       .style("font-size", "11px");
 
-    // Panel layout (small multiples)
     const cols = Math.min(4, eventTypes.length);
     const rowsN = Math.ceil(eventTypes.length / cols);
     const panelW = width / cols - 16;
@@ -150,7 +154,6 @@ export function update(container, data, state, dispatch) {
       const uniqueWeeks = new Set(rowsForEvent.map(d => +d.week)).size;
       const color = colorMap[eventType] || "#999";
 
-      // Header labels
       g.append("text")
         .attr("x", 6)
         .attr("y", 14)
@@ -168,10 +171,8 @@ export function update(container, data, state, dispatch) {
 
       if (values.length < 2) return;
 
-      // Panel-local Y scale (maps global y-domain into local panel space)
       const yPanel = y.copy().range([panelH - 10, 40]);
 
-      // KDE for violin
       const kde = kernelDensityEstimator(kernelEpanechnikov(7), y.ticks(40));
       const density = kde(values);
 
@@ -179,7 +180,6 @@ export function update(container, data, state, dispatch) {
         .domain([0, d3.max(density, d => d[1])])
         .range([0, panelW / 2 - 12]);
 
-      // Violin shape
       g.append("path")
         .datum(density)
         .attr("fill", color)
@@ -193,7 +193,6 @@ export function update(container, data, state, dispatch) {
           .y(d => yPanel(d[0]))
         );
 
-      // Stable jitter points
       g.selectAll("circle.point")
         .data(values.map((v, i) => ({ v, i })))
         .join("circle")
@@ -204,7 +203,6 @@ export function update(container, data, state, dispatch) {
         .attr("fill", color)
         .attr("opacity", 0.6);
 
-      // Median + mean
       const median = d3.median(values);
       const mean = d3.mean(values);
 
