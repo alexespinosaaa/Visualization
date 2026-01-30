@@ -1,18 +1,16 @@
 /**
- * TASK 5: Parallel Coordinate Plot (PCP) — FIXED / IMPROVED
+ * TASK 5: Parallel Coordinate Plot (PCP) — Interactive legend (Service + Stress) + Fixed axis caps
  *
- * What I fixed / improved (the important stuff):
- * ✅ Uses proper d3.brushY on EACH axis (not manual drag + custom rect)
- * ✅ Supports MULTI-AXIS brushing (intersection across active brushes)
- * ✅ Selection stored by STABLE IDs (not array indices) so it won’t “jump” after updates
- * ✅ Clear Brush button actually clears ALL axis brushes + selection
- * ✅ Hover tooltip is SINGLETON (no DOM leaks, no body-level mousemove handler)
- * ✅ Brush layer does NOT block hover (brush handles are on axis groups, polylines are separate layer)
- * ✅ Styling is consistent: filtered-out (state filters) fade hard, unselected fade, selected highlight thicker
+ * CHANGE (per your request):
+ * ✅ Removed Event legend filter entirely (no UI + no filtering logic)
  *
- * Coordination:
- * - On brush end, dispatches SET_TIME_RANGE from selected weeks (like your old version)
- * - (Optional) You can also dispatch a “PCP_SELECTION” event if your app supports it.
+ * Kept:
+ * ✅ Interactive Service legend (multi-select)
+ * ✅ Interactive Stress legend (single-select)
+ * ✅ Multi-axis brushing + intersection selection
+ * ✅ Axis caps: Week max=42, Available Beds max=80, Patients Refused max=400
+ * ✅ Clear Brush button clears all axis brushes + selection (keeps legend filters)
+ * ✅ Clear Filters button resets Service + Stress filters
  */
 
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
@@ -30,7 +28,9 @@ const STRESS_OPACITY = {
   high: 1.0,
 };
 
-const SELECT_STROKE = "#ff8c00"; // orange highlight for selected
+// If you want selection to never resemble Surgery orange, set this to e.g. "#8e44ad"
+const SELECT_STROKE = "#ff8c00";
+
 const UNSELECTED_OPACITY = 0.08;
 const FILTERED_OUT_OPACITY = 0.04;
 
@@ -41,10 +41,12 @@ export function init(svgElement, globalData, state, dispatch) {
     globalData,
     state,
     dispatch,
-    // Map axisKey -> [minVal, maxVal] in data units (not pixels)
-    activeBrushRanges: new Map(),
-    // Set of stable IDs for selected rows
+    activeBrushRanges: new Map(), // axisKey -> [min,max] in data units
     selectedIds: new Set(),
+    legendFilters: {
+      services: new Set(), // empty = all
+      stress: null, // "low" | "moderate" | "high" | null
+    },
     tooltipEl: null,
     keyHandlerAttached: false,
   };
@@ -76,11 +78,11 @@ function _createPCPStructure(svgElement) {
         <div>
           <strong style="color: #2c3e50;">Task 5: Parallel Coordinate Plot</strong><br>
           <span style="color: #7f8c8d; font-size: 12px;">
-            Brush on any axis (multi-axis supported). Colors = Services. Opacity = Stress Level.
-            Click “Clear Brush” or press ESC to reset.
+            Brush any axis (multi-axis supported). Tap legend Service/Stress to filter. Press ESC to clear brushes.
           </span>
         </div>
         <button id="pcp-reset-brush" style="
+          margin-left:auto;
           padding: 8px 16px;
           background-color: #3498db;
           color: white;
@@ -110,7 +112,7 @@ function _createPCPStructure(svgElement) {
     .style("font-size", "12px");
 }
 
-// If you have a true unique id (d.id), use it here instead.
+// If you have d.id use it here instead.
 function rowId(d) {
   return [
     d.week,
@@ -135,7 +137,6 @@ export function update(svgElement, globalData, state, dispatch) {
     const svg = d3.select(svgElement).select("svg.pcp-chart");
 
     const margin = { top: 30, right: 30, bottom: 40, left: 60 };
-
     const svgNode = svg.node();
     let width = (svgNode?.clientWidth || 1000) - margin.left - margin.right;
     let height = Math.max(520, (svgNode?.clientHeight || 520)) - margin.top - margin.bottom;
@@ -148,48 +149,58 @@ export function update(svgElement, globalData, state, dispatch) {
 
     const pcpState = svgElement._pcpState;
 
-    // ========== AXES DEFINITION ==========
+    // ========== AXES (with caps) ==========
     const axes = [
-      { key: "week", label: "Week", nice: true },
-      { key: "available_beds", label: "Available Beds", nice: true },
-      { key: "patients_refused", label: "Patients Refused", nice: true },
-      { key: "staff_morale", label: "Staff Morale", nice: true },
-      { key: "patient_satisfaction", label: "Patient Satisfaction", nice: true },
+      { key: "week", label: "Week", capMin: 1, capMax: 42, nice: true },
+      { key: "available_beds", label: "Available Beds", capMin: 0, capMax: 80, nice: true },
+      { key: "patients_refused", label: "Patients Refused", capMin: 0, capMax: 400, nice: true },
+      { key: "staff_morale", label: "Staff Morale", capMin: 0, capMax: 100, nice: true },
+      { key: "patient_satisfaction", label: "Patient Satisfaction", capMin: 0, capMax: 100, nice: true },
     ];
 
-    // ========== STATE FILTERS ==========
-    const passesStateFilters = (d) => {
+    // ========== FILTERS ==========
+    const passesGlobalStateFilters = (d) => {
       if (state.timeRange && (d.week < state.timeRange[0] || d.week > state.timeRange[1])) return false;
       if (state.selectedWeek && d.week !== state.selectedWeek) return false;
-      if (state.selectedEventType && d.event !== state.selectedEventType) return false;
+      if (state.selectedEventType && d.event !== state.selectedEventType) return false; // keep global event filter if your app uses it
       if (state.stressOnly && d.stress_level !== "high") return false;
       return true;
     };
 
-    // ========== SCALES ==========
+    const passesLegendFilters = (d) => {
+      const lf = pcpState.legendFilters;
+      if (lf.services && lf.services.size > 0 && !lf.services.has(d.service)) return false;
+      if (lf.stress && d.stress_level !== lf.stress) return false;
+      return true;
+    };
+
+    const passesAllFilters = (d) => passesGlobalStateFilters(d) && passesLegendFilters(d);
+
+    // ========== SCALES (apply caps) ==========
     const yScales = {};
     for (const axis of axes) {
       const extent = d3.extent(data, (d) => +d[axis.key]);
-      const dom = extent[0] === extent[1] ? [extent[0] - 1, extent[1] + 1] : extent;
+      let d0 = extent?.[0] ?? axis.capMin ?? 0;
+      let d1 = extent?.[1] ?? axis.capMax ?? 1;
 
-      yScales[axis.key] = d3
-        .scaleLinear()
-        .domain(dom)
-        .range([height, 0])
-        .nice(axis.nice);
+      if (axis.capMin != null) d0 = Math.max(axis.capMin, d0);
+      if (axis.capMax != null) d1 = Math.min(axis.capMax, d1);
+
+      if (!Number.isFinite(d0)) d0 = axis.capMin ?? 0;
+      if (!Number.isFinite(d1)) d1 = axis.capMax ?? 1;
+      if (d0 === d1) d1 = d0 + 1;
+
+      yScales[axis.key] = d3.scaleLinear().domain([d0, d1]).range([height, 0]).nice(axis.nice).clamp(true);
     }
 
     const xScale = d3.scalePoint().domain(axes.map((a) => a.key)).range([0, width]).padding(0.3);
 
     // ========== LAYERS ==========
-    const backgroundLayer = g.append("g").attr("class", "pcp-bg");
+    const bg = g.append("g").attr("class", "pcp-bg");
     const linesLayer = g.append("g").attr("class", "pcp-lines");
     const axesLayer = g.append("g").attr("class", "pcp-axes");
 
-    // Subtle background horizontal guides
-    backgroundLayer
-      .append("g")
-      .attr("class", "pcp-hguides")
+    bg.append("g")
       .selectAll("line")
       .data(d3.range(0, 6))
       .join("line")
@@ -228,9 +239,9 @@ export function update(svgElement, globalData, state, dispatch) {
         .html(`
           <strong style="font-size: 13px;">${d.service}</strong> — Week ${d.week}<br>
           <span style="color:#bdc3c7; display:block; margin-top:6px;">
+            Stress: <strong>${d.stress_level}</strong><br>
             Beds: <strong>${d.available_beds}</strong> | Refused: <strong>${d.patients_refused}</strong><br>
-            Morale: <strong>${d.staff_morale}</strong> | Satisfaction: <strong>${d.patient_satisfaction}</strong><br>
-            Stress: <strong>${d.stress_level}</strong>
+            Morale: <strong>${d.staff_morale}</strong> | Satisfaction: <strong>${d.patient_satisfaction}</strong>
           </span>
         `)
         .style("display", "block");
@@ -251,15 +262,13 @@ export function update(svgElement, globalData, state, dispatch) {
       if (pcpState.tooltipEl) pcpState.tooltipEl.style("display", "none");
     };
 
-    // ========== PATH GENERATOR ==========
-    const pointsForRow = (d) =>
-      axes.map((axis) => [xScale(axis.key), yScales[axis.key](+d[axis.key])]);
-
+    // ========== LINE GEN ==========
+    const pts = (d) => axes.map((axis) => [xScale(axis.key), yScales[axis.key](+d[axis.key])]);
     const lineGen = d3.line();
 
-    // ========== SELECTION LOGIC (multi-axis intersection) ==========
+    // ========== SELECTION (brush intersection) ==========
     const recomputeSelectionFromBrushes = () => {
-      const active = pcpState.activeBrushRanges; // Map axisKey -> [min,max]
+      const active = pcpState.activeBrushRanges;
       if (!active || active.size === 0) {
         pcpState.selectedIds = new Set();
         return;
@@ -267,6 +276,8 @@ export function update(svgElement, globalData, state, dispatch) {
 
       const selected = new Set();
       for (const d of data) {
+        if (!passesAllFilters(d)) continue;
+
         let ok = true;
         for (const [axisKey, [minV, maxV]] of active.entries()) {
           const v = +d[axisKey];
@@ -288,28 +299,23 @@ export function update(svgElement, globalData, state, dispatch) {
         .selectAll("path.pcp-line")
         .style("stroke", (d) => (hasSelection() && isSelected(d) ? SELECT_STROKE : SERVICE_COLORS[d.service] || "#95a5a6"))
         .style("stroke-width", (d) => {
-          if (!passesStateFilters(d)) return 1;
+          if (!passesAllFilters(d)) return 1;
           if (!hasSelection()) return 1.3;
           return isSelected(d) ? 2.6 : 1;
         })
         .style("opacity", (d) => {
-          if (!passesStateFilters(d)) return FILTERED_OUT_OPACITY;
+          if (!passesAllFilters(d)) return FILTERED_OUT_OPACITY;
           if (!hasSelection()) return STRESS_OPACITY[d.stress_level] ?? 0.5;
-          return isSelected(d) ? (STRESS_OPACITY[d.stress_level] ?? 0.5) : UNSELECTED_OPACITY;
+          return isSelected(d) ? STRESS_OPACITY[d.stress_level] ?? 0.5 : UNSELECTED_OPACITY;
         })
         .style("filter", (d) => (hasSelection() && isSelected(d) ? "drop-shadow(0 0 3px rgba(255,140,0,0.35))" : "none"));
     };
 
     const clearAllBrushes = () => {
-      // Clear internal state
       pcpState.activeBrushRanges = new Map();
       pcpState.selectedIds = new Set();
 
-      // Clear the actual d3 brushes by moving them to null
       axesLayer.selectAll(".axis-brush").each(function () {
-        const brush = d3.select(this).datum()?.__brush;
-        // Not reliable to fetch internal brush; easiest is to store brush instance via closure.
-        // Instead, we keep a reference on the node (set below).
         const b = this.__pcpBrush;
         if (b) d3.select(this).call(b.move, null);
       });
@@ -318,7 +324,21 @@ export function update(svgElement, globalData, state, dispatch) {
       hideTooltip();
     };
 
-    // ESC clears brushes (attach once)
+    const clearLegendFilters = () => {
+      pcpState.legendFilters.services = new Set();
+      pcpState.legendFilters.stress = null;
+
+      try { dispatch({ type: "SET_SELECTED_STRESS_LEVEL", value: null }); } catch {}
+      try { dispatch({ type: "SET_SELECTED_SERVICE", value: null }); } catch {}
+
+      recomputeSelectionFromBrushes();
+      applyLineStyles();
+
+      _updatePCPLegend(svgElement, pcpState);
+      _wireLegendInteractions(svgElement, pcpState, dispatch, onLegendChange, clearLegendFilters);
+    };
+
+    // ESC clears brushes (not legend filters)
     if (!pcpState.keyHandlerAttached) {
       pcpState.keyHandlerAttached = true;
       window.addEventListener("keydown", (e) => {
@@ -334,18 +354,19 @@ export function update(svgElement, globalData, state, dispatch) {
       .data(data, (d) => rowId(d))
       .join("path")
       .attr("class", "pcp-line")
-      .attr("d", (d) => lineGen(pointsForRow(d)))
+      .attr("d", (d) => lineGen(pts(d)))
       .style("fill", "none")
       .style("stroke-linecap", "round")
       .style("stroke-linejoin", "round")
-      .on("mouseenter", function (event, d) {
+      .on("pointerenter", function (event, d) {
+        if (!passesAllFilters(d)) return;
         d3.select(this).style("stroke-width", 3).style("opacity", 1);
         showTooltip(event, d);
       })
-      .on("mousemove", function (event) {
+      .on("pointermove", function (event) {
         moveTooltip(event);
       })
-      .on("mouseleave", function () {
+      .on("pointerleave", function () {
         hideTooltip();
         applyLineStyles();
       });
@@ -353,7 +374,7 @@ export function update(svgElement, globalData, state, dispatch) {
     applyLineStyles();
     svg.on("mouseleave", hideTooltip);
 
-    // ========== DRAW AXES + BRUSH PER AXIS ==========
+    // ========== DRAW AXES ==========
     const axisGroups = axesLayer
       .selectAll("g.axis-group")
       .data(axes, (d) => d.key)
@@ -379,7 +400,6 @@ export function update(svgElement, globalData, state, dispatch) {
       .style("font-size", "12px")
       .text((d) => d.label);
 
-    // Ticks
     axisGroups.each(function (axis) {
       const scale = yScales[axis.key];
       const tickValues = scale.ticks(5);
@@ -392,12 +412,7 @@ export function update(svgElement, globalData, state, dispatch) {
         .attr("class", "tick")
         .attr("transform", (d) => `translate(0,${scale(d)})`)
         .call((tickG) => {
-          tickG
-            .append("line")
-            .attr("x2", -6)
-            .style("stroke", "#bdc3c7")
-            .style("stroke-width", 1);
-
+          tickG.append("line").attr("x2", -6).style("stroke", "#bdc3c7").style("stroke-width", 1);
           tickG
             .append("text")
             .attr("x", -10)
@@ -409,7 +424,7 @@ export function update(svgElement, globalData, state, dispatch) {
         });
     });
 
-    // Brush per axis
+    // ========== BRUSH PER AXIS ==========
     axisGroups.each(function (axis) {
       const scale = yScales[axis.key];
 
@@ -421,8 +436,8 @@ export function update(svgElement, globalData, state, dispatch) {
         ])
         .on("brush", ({ selection }) => {
           if (!selection) return;
-
           const [y0, y1] = selection;
+
           const v0 = scale.invert(y1);
           const v1 = scale.invert(y0);
           const minV = Math.min(v0, v1);
@@ -433,14 +448,13 @@ export function update(svgElement, globalData, state, dispatch) {
           applyLineStyles();
         })
         .on("end", ({ selection }) => {
-          // If brush cleared on this axis, remove it from active ranges
           if (!selection) {
             pcpState.activeBrushRanges.delete(axis.key);
             recomputeSelectionFromBrushes();
             applyLineStyles();
+            return;
           }
 
-          // Dispatch linked time range from selection (if any)
           if (hasSelection()) {
             const weeks = new Set();
             for (const d of data) {
@@ -448,107 +462,206 @@ export function update(svgElement, globalData, state, dispatch) {
             }
             const weekArray = Array.from(weeks).sort((a, b) => a - b);
             if (weekArray.length > 0) {
-              dispatch({
-                type: "SET_TIME_RANGE",
-                value: [weekArray[0], weekArray[weekArray.length - 1]],
-              });
+              dispatch({ type: "SET_TIME_RANGE", value: [weekArray[0], weekArray[weekArray.length - 1]] });
             }
-
-            // OPTIONAL (only if your app understands it):
-            // dispatch({ type: "PCP_SELECTION", value: Array.from(pcpState.selectedIds) });
           }
         });
 
-      // Attach brush group
-      const brushG = d3
-        .select(this)
-        .append("g")
-        .attr("class", "axis-brush")
-        .call(brush);
-
-      // Store brush instance for clearing later
+      const brushG = d3.select(this).append("g").attr("class", "axis-brush").call(brush);
       brushG.node().__pcpBrush = brush;
 
-      // Style brush selection to match your UI
       brushG.selectAll(".selection").style("fill", "#3498db").style("fill-opacity", 0.2).style("stroke", "#3498db");
       brushG.selectAll(".handle").style("fill", "#3498db");
     });
 
-    // ========== Hook up Clear Brush button ==========
+    // ========== Clear Brush button ==========
     d3.select(svgElement)
       .select("#pcp-reset-brush")
-      .on("click", () => {
-        clearAllBrushes();
-        console.log("🔄 PCP brushes cleared");
-      });
+      .on("click", () => clearAllBrushes());
 
-    _updatePCPLegend(svgElement);
+    // ========== LEGEND ==========
+    const onLegendChange = () => {
+      recomputeSelectionFromBrushes();
+      applyLineStyles();
+    };
+
+    _updatePCPLegend(svgElement, pcpState);
+    _wireLegendInteractions(svgElement, pcpState, dispatch, onLegendChange, clearLegendFilters);
+
   } catch (error) {
     console.error("❌ Error in PCP update:", error);
   }
 }
 
-function _updatePCPLegend(svgElement) {
-  const legendDiv = d3.select(svgElement).select(".pcp-legend");
-  legendDiv.selectAll("*").remove();
+function _updatePCPLegend(svgElement, pcpState) {
+  const legend = d3.select(svgElement).select(".pcp-legend");
+  legend.selectAll("*").remove();
 
-  const serviceHtml = `
-    <div style="margin-bottom: 12px;">
-      <strong style="color: #2c3e50;">Services (Color):</strong><br>
-      ${Object.entries(SERVICE_COLORS)
-        .map(
-          ([service, color]) => `
-        <span style="display: inline-block; margin-right: 18px; margin-top: 6px;">
-          <span style="
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            background-color: ${color};
-            border-radius: 2px;
-            margin-right: 6px;
-            vertical-align: middle;
-          "></span>
-          <span style="font-size: 11px;">${service.replaceAll("_", " ")}</span>
-        </span>
-      `
-        )
-        .join("")}
-    </div>
-  `;
+  const lf = pcpState.legendFilters;
 
-  const stressHtml = `
-    <div style="margin-bottom: 10px;">
-      <strong style="color: #2c3e50;">Stress (Opacity):</strong><br>
-      ${Object.entries(STRESS_OPACITY)
-        .map(
-          ([level, opacity]) => `
-        <span style="display: inline-block; margin-right: 18px; margin-top: 6px;">
-          <span style="
-            display: inline-block;
-            width: 16px;
-            height: 3px;
-            background-color: #2c3e50;
-            opacity: ${opacity};
-            margin-right: 6px;
-            vertical-align: middle;
-          "></span>
-          <span style="font-size: 11px;">${level.charAt(0).toUpperCase() + level.slice(1)}</span>
-        </span>
-      `
-        )
-        .join("")}
-    </div>
-  `;
+  const section = (title) =>
+    legend
+      .append("div")
+      .style("margin-bottom", "12px")
+      .call((d) => d.append("div").style("font-weight", "700").style("color", "#2c3e50").text(title));
 
-  const selectionHtml = `
-    <div>
-      <strong style="color: #2c3e50;">Selection:</strong><br>
+  // Services (interactive, multi-select)
+  const s1 = section("Services (Tap to filter):");
+  const sRow = s1.append("div").style("margin-top", "6px").attr("data-role", "service-row");
+
+  const services = Object.keys(SERVICE_COLORS);
+  const serviceActive = (svc) => (lf.services.size === 0 ? true : lf.services.has(svc));
+
+  services.forEach((svc) => {
+    const active = serviceActive(svc);
+
+    const btn = sRow
+      .append("button")
+      .attr("type", "button")
+      .attr("data-service", svc)
+      .style("margin-right", "10px")
+      .style("margin-top", "6px")
+      .style("padding", "6px 10px")
+      .style("border-radius", "999px")
+      .style("border", active ? "2px solid #2c3e50" : "1px solid #d0d0d0")
+      .style("background", active ? "#eef2f5" : "#ffffff")
+      .style("cursor", "pointer")
+      .style("font-size", "11px")
+      .style("display", "inline-flex")
+      .style("align-items", "center")
+      .style("gap", "6px");
+
+    btn
+      .append("span")
+      .style("display", "inline-block")
+      .style("width", "12px")
+      .style("height", "12px")
+      .style("border-radius", "2px")
+      .style("background", SERVICE_COLORS[svc])
+      .style("opacity", active ? 1 : 0.35);
+
+    btn.append("span").text(svc.replaceAll("_", " "));
+  });
+
+  // Stress (interactive)
+  const st1 = section("Stress (Tap to filter):");
+  const stRow = st1.append("div").style("margin-top", "6px").attr("data-role", "stress-row");
+
+  const stresses = [
+    { key: null, label: "All", opacity: 1.0 },
+    { key: "low", label: "Low", opacity: STRESS_OPACITY.low },
+    { key: "moderate", label: "Moderate", opacity: STRESS_OPACITY.moderate },
+    { key: "high", label: "High", opacity: STRESS_OPACITY.high },
+  ];
+
+  stresses.forEach((st) => {
+    const isActive = lf.stress === st.key || (lf.stress === null && st.key === null);
+
+    const btn = stRow
+      .append("button")
+      .attr("type", "button")
+      .attr("data-stress", st.key === null ? "" : st.key)
+      .style("margin-right", "10px")
+      .style("margin-top", "6px")
+      .style("padding", "6px 10px")
+      .style("border-radius", "999px")
+      .style("border", isActive ? "2px solid #2c3e50" : "1px solid #d0d0d0")
+      .style("background", isActive ? "#eef2f5" : "#ffffff")
+      .style("cursor", "pointer")
+      .style("font-size", "11px")
+      .style("display", "inline-flex")
+      .style("align-items", "center")
+      .style("gap", "6px");
+
+    btn
+      .append("span")
+      .style("width", "16px")
+      .style("height", "3px")
+      .style("display", "inline-block")
+      .style("background", "#2c3e50")
+      .style("opacity", st.opacity);
+
+    btn.append("span").text(st.label);
+  });
+
+  // Clear filters
+  legend
+    .append("div")
+    .style("margin-top", "10px")
+    .append("button")
+    .attr("type", "button")
+    .attr("data-role", "clear-filters")
+    .style("padding", "6px 10px")
+    .style("border-radius", "6px")
+    .style("border", "1px solid #d0d0d0")
+    .style("background", "#ffffff")
+    .style("cursor", "pointer")
+    .style("font-size", "11px")
+    .text("Clear Service/Stress Filters");
+
+  // Selection note
+  legend
+    .append("div")
+    .style("margin-top", "10px")
+    .html(`
+      <strong style="color:#2c3e50;">Selection:</strong><br>
       <span style="font-size: 11px; color: #7f8c8d;">
         Selected lines turn <span style="color:${SELECT_STROKE}; font-weight:700;">orange</span> and get thicker.
         Unselected lines fade.
       </span>
-    </div>
-  `;
+    `);
+}
 
-  legendDiv.html(serviceHtml + stressHtml + selectionHtml);
+function _wireLegendInteractions(svgElement, pcpState, dispatch, onChange, clearLegendFilters) {
+  const legend = d3.select(svgElement).select(".pcp-legend");
+
+  // Service (multi-select)
+  legend.selectAll('button[data-service]').on("pointerdown", function (event) {
+    event.preventDefault();
+    const svc = d3.select(this).attr("data-service");
+    const set = new Set(pcpState.legendFilters.services);
+
+    if (set.size === 0) {
+      set.add(svc);
+    } else {
+      if (set.has(svc)) set.delete(svc);
+      else set.add(svc);
+      // if set becomes empty => back to all
+    }
+
+    pcpState.legendFilters.services = set;
+
+    try {
+      dispatch({
+        type: "SET_SELECTED_SERVICE",
+        value: set.size === 0 ? null : Array.from(set),
+      });
+    } catch {}
+
+    _updatePCPLegend(svgElement, pcpState);
+    _wireLegendInteractions(svgElement, pcpState, dispatch, onChange, clearLegendFilters);
+    onChange();
+  });
+
+  // Stress
+  legend.selectAll('button[data-stress]').on("pointerdown", function (event) {
+    event.preventDefault();
+    const v = d3.select(this).attr("data-stress");
+    const newVal = v === "" ? null : v;
+    pcpState.legendFilters.stress = pcpState.legendFilters.stress === newVal ? null : newVal;
+
+    try {
+      dispatch({ type: "SET_SELECTED_STRESS_LEVEL", value: pcpState.legendFilters.stress });
+    } catch {}
+
+    _updatePCPLegend(svgElement, pcpState);
+    _wireLegendInteractions(svgElement, pcpState, dispatch, onChange, clearLegendFilters);
+    onChange();
+  });
+
+  // Clear filters
+  legend.selectAll('button[data-role="clear-filters"]').on("pointerdown", function (event) {
+    event.preventDefault();
+    clearLegendFilters();
+  });
 }
