@@ -17,6 +17,9 @@ export function init(container, data, state, dispatch) {
 
   container._cal = { margin, dispatch, tooltip };
 
+  // ✅ SINGLE-CLICK KPI FIX: bind button listeners once (no inline onclick / no global event)
+  bindMetricButtons(container);
+
   container._cal_ro = observeResize(container, () => {
     update(container, data, state, dispatch);
   });
@@ -24,10 +27,50 @@ export function init(container, data, state, dispatch) {
   update(container, data, state, dispatch);
 }
 
+function bindMetricButtons(container) {
+  if (container._calMetricBound) return; // bind once
+
+  const controls = document.getElementById("metric-controls");
+  if (!controls) return;
+
+  controls.querySelectorAll("button.btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const label = (btn.textContent || "").trim().toLowerCase();
+
+      // Map button labels to metric keys (robust)
+      const map = {
+        refusals: "refusals",
+        morale: "morale",
+        occupancy: "occupancy",
+        satisfaction: "satisfaction",
+      };
+
+      // If your button labels are different, you can also support data-metric attributes:
+      const metric = btn.dataset.metric || map[label] || null;
+      if (!metric) return;
+
+      // Update active styling
+      controls.querySelectorAll("button.btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      // Dispatch metric change immediately (single click)
+      const _dispatch = container._cal?.dispatch || window.dispatch;
+      if (typeof _dispatch === "function") {
+        _dispatch({ type: "SET_METRIC", value: metric });
+      }
+    });
+  });
+
+  container._calMetricBound = true;
+}
+
 export function update(container, data, state, dispatch) {
   const el = d3.select(container);
   const cfg = container._cal;
   if (!cfg) return;
+
+  // Keep latest dispatch reference
+  if (dispatch) cfg.dispatch = dispatch;
 
   const { margin, tooltip } = cfg;
 
@@ -36,7 +79,7 @@ export function update(container, data, state, dispatch) {
 
   // Calendar needs less height; but still responsive to panel size
   const { width } = getInnerSize(container, margin, 180);
-  const cellBandH = 40;                // heat row height
+  const cellBandH = 40;                   // heat row height
   const innerH = Math.max(60, cellBandH); // keep it clean and compact
   const outerH = innerH + margin.top + margin.bottom;
 
@@ -106,7 +149,12 @@ export function update(container, data, state, dispatch) {
     .attr("height", cellBandH)
     .attr("rx", 3)
     .style("cursor", "pointer")
-    .on("click", (e, d) => dispatch({ type: "SET_SELECTED_WEEK", value: d.week }))
+    .on("click", (e, d) => {
+      const _dispatch = cfg.dispatch || window.dispatch;
+      if (typeof _dispatch === "function") {
+        _dispatch({ type: "SET_SELECTED_WEEK", value: d.week });
+      }
+    })
     .on("mouseover", (event, d) => {
       d3.select(event.currentTarget).attr("stroke", "#333").attr("stroke-width", 2);
       const m = state.metric || "refusals";
