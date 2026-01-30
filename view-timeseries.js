@@ -40,14 +40,24 @@ export function init(container, data, state, dispatch) {
   const svg = wrapper.append("svg")
     .attr("class", "timeseries-chart")
     .style("width", "100%")
+    .style("height", "100%")     // IMPORTANT
     .style("flex", "1")
-    .style("min-height", "0")   // important: let flex compute height
-    .style("display", "block");
+    .style("min-height", "0")
+    .style("display", "block")
+    .attr("preserveAspectRatio", "xMidYMid meet");
 
   // Build static scaffolding once
   _buildScaffold(container, svg);
 
-  update(container, data, state, dispatch);
+  // First update AFTER layout settles (important in flex)
+  requestAnimationFrame(() => update(container, data, state, dispatch));
+
+  // Re-render on resize (same as “behaves like PCP/Scatter”)
+  const ro = new ResizeObserver(() => {
+    requestAnimationFrame(() => update(container, data, state, dispatch));
+  });
+  ro.observe(container);
+  container._tsState._ro = ro;
 }
 
 function _buildScaffold(container, svgSel) {
@@ -55,7 +65,6 @@ function _buildScaffold(container, svgSel) {
 
   svgSel.selectAll("*").remove();
 
-  // We'll compute margins dynamically in update; store groups here
   svgSel.append("defs")
     .append("clipPath")
     .attr("id", clipId)
@@ -109,10 +118,8 @@ function _buildScaffold(container, svgSel) {
   chartArea.append("g").attr("class", "y-axis-l");
   chartArea.append("g").attr("class", "y-axis-r");
 
-  // Brush holder (overlay lives here)
+  // Brush holder
   clipped.append("g").attr("class", "brush");
-
-  // Zoom is attached to SVG in update (needs width/height)
 }
 
 export function update(container, data, state, dispatch) {
@@ -120,24 +127,33 @@ export function update(container, data, state, dispatch) {
     const ds = (data && data.hospitalWeekly) ? data.hospitalWeekly : [];
     if (!ds.length) return;
 
-    // Persist dispatch safely
     if (dispatch) container._tsState.dispatch = dispatch;
     const _dispatch = container._tsState.dispatch || window.dispatch;
 
     const svg = d3.select(container).select("svg.timeseries-chart");
     if (svg.empty()) return;
 
-    // Measure actual pixels available
-    const svgNode = svg.node();
-    const W = Math.max(300, svgNode.clientWidth || 900);
-    const H = Math.max(260, svgNode.clientHeight || 360);
+    // ✅ MEASURE FROM WRAPPER, NOT SVG (fixes flex measurement bug)
+    const wrapperNode = d3.select(container).select(".timeseries-wrapper").node();
+    const controlsNode = d3.select(container).select(".timeseries-controls").node();
+    if (!wrapperNode || !controlsNode) return;
 
-    // Margins tuned for readability
-    const margin = { top: 34, right: 56, bottom: 44, left: 56 };
+    const wrapperRect = wrapperNode.getBoundingClientRect();
+    const controlsRect = controlsNode.getBoundingClientRect();
+
+    const W = Math.max(320, Math.floor(wrapperRect.width));
+    const H = Math.max(280, Math.floor(wrapperRect.height - controlsRect.height));
+
+    // ✅ FORCE SVG PIXEL SIZE + VIEWBOX (fixes clipping)
+    svg.attr("width", W).attr("height", H);
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
+
+    // Margins tuned so axes never get cut
+    const margin = { top: 34, right: 64, bottom: 54, left: 64 };
     const width = Math.max(10, W - margin.left - margin.right);
     const height = Math.max(10, H - margin.top - margin.bottom);
 
-    // Position top labels
+    // Labels
     svg.select(".label-left")
       .attr("x", margin.left)
       .attr("y", 18);
@@ -167,7 +183,7 @@ export function update(container, data, state, dispatch) {
     const transform = state.zoomTransform || d3.zoomIdentity;
     const newX = transform.rescaleX(x);
 
-    yLeft.domain([0, d3.max(ds, d => +d.refusals) * 1.1]);
+    yLeft.domain([0, d3.max(ds, d => +d.refusals) * 1.1]).nice();
 
     // Axes
     root.select(".x-axis")
@@ -214,8 +230,8 @@ export function update(container, data, state, dispatch) {
     // Event icons
     const tooltip = d3.select("body").select(".chart-tooltip");
     const eventGroup = clipped.select("g.events");
-
     const events = ds.filter(d => d.eventType && d.eventType !== "none");
+
     const icons = eventGroup.selectAll("g.event-icon")
       .data(events, d => d.week);
 
@@ -282,7 +298,7 @@ export function update(container, data, state, dispatch) {
       dots.selectAll("circle").remove();
     }
 
-    // Brush (uses NEWX)
+    // Brush
     const brushGroup = clipped.select("g.brush");
     brushGroup.selectAll("*").remove();
 
@@ -302,7 +318,7 @@ export function update(container, data, state, dispatch) {
 
     brushGroup.call(brush);
 
-    // Click to select week (attach to overlay)
+    // Click to select week
     brushGroup.select(".overlay")
       .style("cursor", "pointer")
       .on("click", (event) => {
@@ -313,7 +329,7 @@ export function update(container, data, state, dispatch) {
         }
       });
 
-    // Zoom (attach to svg; update state.zoomTransform via dispatch)
+    // Zoom
     const zoom = d3.zoom()
       .scaleExtent([1, 8])
       .translateExtent([[0, 0], [width, height]])
