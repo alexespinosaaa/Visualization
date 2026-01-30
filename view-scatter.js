@@ -4,7 +4,7 @@ import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 /**
  * Task — Linked Scatterplot Explorer (composition vs outcome)
  *
- * ✅ What this version fixes / improves (without changing your app architecture):
+ * What this version fixes / improves (without changing your app architecture):
  * - Height stays ~300px (responsive width)
  * - Uses ABU-style events: flu / strike / donation / none (no "normal")
  * - Deterministic jitter (stable per point) + slightly wider near extremes

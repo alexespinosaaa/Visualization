@@ -17,7 +17,7 @@ export function init(container, data, state, dispatch) {
 
   container._cal = { margin, dispatch, tooltip };
 
-  // ✅ SINGLE-CLICK KPI FIX: bind button listeners once (no inline onclick / no global event)
+  // SINGLE-CLICK KPI FIX: bind button listeners once (no inline onclick / no global event)
   bindMetricButtons(container);
 
   container._cal_ro = observeResize(container, () => {

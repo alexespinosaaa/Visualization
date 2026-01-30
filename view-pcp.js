@@ -1,8 +1,8 @@
 /**
  * TASK 5: Parallel Coordinate Plot (PCP) — Interactive legend (Service + Stress) + Fixed axis caps
  *
- * ✅ Removed Event legend filter entirely (no UI + no filtering logic)
- * ✅ Keeps:
+ * Removed Event legend filter entirely (no UI + no filtering logic)
+ *  Keeps:
  * - Interactive Service legend (multi-select) [LOCAL ONLY]
  * - Interactive Stress legend (single-select) [LOCAL ONLY]
  * - Multi-axis brushing + intersection selection
@@ -10,7 +10,7 @@
  * - Clear Brush button clears all axis brushes + selection (keeps legend filters)
  * - Clear Filters button resets Service + Stress filters
  *
- * ✅ Cross-view link:
+ *  Cross-view link:
  * - When PCP has a selection, it dispatches SET_TIME_RANGE
  * - It also respects state.timeRange (from Task 3 brush, calendar, etc.)
  */
@@ -35,7 +35,7 @@ const UNSELECTED_OPACITY = 0.08;
 const FILTERED_OUT_OPACITY = 0.04;
 
 export function init(svgElement, globalData, state, dispatch) {
-  console.log("🎨 Initializing Task 5: Parallel Coordinate Plot");
+  console.log("Initializing Task 5: Parallel Coordinate Plot");
 
   svgElement._pcpState = {
     globalData,
@@ -129,7 +129,7 @@ function rowId(d) {
 export function update(svgElement, globalData, state, dispatch) {
   try {
     if (!globalData.task5Data || globalData.task5Data.length === 0) {
-      console.warn("⚠️ No Task 5 data available");
+      console.warn("No Task 5 data available");
       return;
     }
 
@@ -479,7 +479,7 @@ export function update(svgElement, globalData, state, dispatch) {
     _wireLegendInteractions(svgElement, pcpState, onLegendChange, clearLegendFilters);
 
   } catch (error) {
-    console.error("❌ Error in PCP update:", error);
+    console.error(" Error in PCP update:", error);
   }
 }
 

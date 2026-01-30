@@ -1,4 +1,4 @@
-// main.js - ABU ONLY + TWO SCATTER VIEWS (Task3 + Task4) + case-insensitive filters
+// main.js - Final data processor ONLY + TWO SCATTER VIEWS (Task3 + Task4) + case-insensitive filters
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
 import {
@@ -13,16 +13,16 @@ import * as CalendarView from "./view-calendar.js";
 import * as TimeSeriesView from "./view-timeseries.js";
 import * as EventImpactView from "./view-event-impact.js";
 
-// ✅ Task 3 scatter (6D linked scatter)
+// Task 3 scatter (6D linked scatter)
 import * as ScatterTask3View from "./view-scatterplot-linked.js";
 
-// ✅ Task 4 scatter (dropdown + density + brush)
+// Task 4 scatter (dropdown + density + brush)
 import * as ScatterTask4View from "./view-scatter.js";
 
 import * as PCPView from "./view-pcp.js";
 
 // -------------------- STATE (legacy metric names) --------------------
-// ✅ Minimal change: add selectedStressLevel + allow selectedService to be string OR array
+// Minimal change: add selectedStressLevel + allow selectedService to be string OR array
 let state = {
   selectedWeek: null,
   selectedService: null,        // string | string[] | null
@@ -70,7 +70,7 @@ function normService(x) {
   return s;
 }
 
-// ✅ Service matcher that supports string OR array (minimal change)
+// Service matcher that supports string OR array (minimal change)
 function serviceMatches(rowService, selectedService) {
   if (!selectedService) return true;
 
@@ -90,7 +90,7 @@ function serviceMatches(rowService, selectedService) {
 function applyFilters(rows) {
   let out = rows;
 
-  // ✅ multi-service support
+  // multi-service support
   if (state.selectedService) {
     out = out.filter(d => serviceMatches(d.service, state.selectedService));
   }
@@ -100,7 +100,7 @@ function applyFilters(rows) {
     out = out.filter(d => normEvent(d.event) === targetEvent);
   }
 
-  // ✅ NEW: stress level filter from PCP legend (independent of "stressOnly")
+  // NEW: stress level filter from PCP legend (independent of "stressOnly")
   if (state.selectedStressLevel) {
     const target = normStr(state.selectedStressLevel);
     out = out.filter(d => normStr(d.stress_level) === target);
@@ -222,7 +222,7 @@ function dispatch(action) {
       state.selectedWeek = (state.selectedWeek === action.value) ? null : action.value;
       break;
 
-    // ✅ allow string OR array OR null
+    // allow string OR array OR null
     case "SET_SELECTED_SERVICE": {
       const v = action.value;
       if (!v || (Array.isArray(v) && v.length === 0)) {
@@ -237,7 +237,7 @@ function dispatch(action) {
       state.selectedEventType = (state.selectedEventType === action.value) ? null : action.value;
       break;
 
-    // ✅ NEW: used by PCP legend
+    // NEW: used by PCP legend
     case "SET_SELECTED_STRESS_LEVEL":
       state.selectedStressLevel = action.value ? String(action.value) : null;
       break;
@@ -360,9 +360,9 @@ async function init() {
     );
 
     updateAllViews();
-    console.log("✅ Initialization complete.");
+    console.log("Initialization complete.");
   } catch (error) {
-    console.error("❌ Error during initialization:", error);
+    console.error(" Error during initialization:", error);
 
     const msg = document.createElement("div");
     msg.style.cssText =

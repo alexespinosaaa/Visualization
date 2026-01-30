@@ -58,7 +58,7 @@ export function update(container, data, state, dispatch) {
     const svg = d3.select(container).select("svg.eventimpact-chart");
     if (svg.empty()) return;
 
-    // ✅ MEASURE FROM WRAPPER, NOT SVG
+    //  MEASURE FROM WRAPPER, NOT SVG
     const wrapperNode = d3.select(container).select(".eventimpact-wrapper").node();
     const controlsNode = d3.select(container).select(".eventimpact-controls").node();
     if (!wrapperNode || !controlsNode) return;
@@ -69,7 +69,7 @@ export function update(container, data, state, dispatch) {
     const W = Math.max(320, Math.floor(wrapperRect.width));
     const H = Math.max(280, Math.floor(wrapperRect.height - controlsRect.height));
 
-    // ✅ FORCE SVG PIXEL SIZE + VIEWBOX
+    // FORCE SVG PIXEL SIZE + VIEWBOX
     svg.attr("width", W).attr("height", H);
     svg.attr("viewBox", `0 0 ${W} ${H}`);
 
@@ -224,7 +224,7 @@ export function update(container, data, state, dispatch) {
     });
 
   } catch (err) {
-    console.error("❌ Error in view-event-impact update:", err);
+    console.error(" Error in view-event-impact update:", err);
   }
 }
 

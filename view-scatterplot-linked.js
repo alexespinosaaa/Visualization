@@ -141,7 +141,7 @@ function resetServiceFilter(scatterState) {
 }
 
 export function init(svgElement, globalData, state, dispatch) {
-  console.log("🎨 Initializing Task 3: Scatterplot Explorer");
+  console.log("Initializing Task 3: Scatterplot Explorer");
 
   svgElement._scatterState = {
     globalData,
@@ -153,7 +153,7 @@ export function init(svgElement, globalData, state, dispatch) {
     tooltipEl: null,
     keyHandlerAttached: false,
     yMetric: "staff_morale",
-    serviceFilter: null, // ✅ NEW
+    serviceFilter: null, // NEW
     _ySelect: null,
     _ySelectHooked: false,
   };
@@ -253,7 +253,7 @@ function _createScatterStructure(svgElement) {
 export function update(svgElement, globalData, state, dispatch) {
   try {
     if (!globalData.task3Data || globalData.task3Data.length === 0) {
-      console.warn("⚠️ No Task 3 data available");
+      console.warn("No Task 3 data available");
       return;
     }
 
@@ -330,7 +330,7 @@ export function update(svgElement, globalData, state, dispatch) {
       if (state.stressOnly && d.stress_level !== "high") return false;
       if (!Number.isFinite(+d[yMetric])) return false;
 
-      // ✅ legend-driven service filter
+      // legend-driven service filter
       if (!isServiceActive(scatterState, d.service)) return false;
 
       return true;
@@ -587,7 +587,7 @@ export function update(svgElement, globalData, state, dispatch) {
 
           const selectedIds = new Set();
           for (const d of data) {
-            if (!passesStateFilters(d)) continue; // ✅ respect service filter + state filters
+            if (!passesStateFilters(d)) continue; //respect service filter + state filters
             const cx = xScale(+d.pct_staff_present) + xJitterPx(d);
             const cy = yScale(+d[yMetric]);
             if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) selectedIds.add(pointId(d));
@@ -614,7 +614,7 @@ export function update(svgElement, globalData, state, dispatch) {
 
     _updateScatterLegend(svgElement, globalData, state, dispatch);
   } catch (error) {
-    console.error("❌ Error in Scatter update:", error);
+    console.error("Error in Scatter update:", error);
   }
 }
 

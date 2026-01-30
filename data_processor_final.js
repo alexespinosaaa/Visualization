@@ -1,10 +1,10 @@
 /**
  * UNIFIED DATA PROCESSOR (OPTION A - CANONICAL SERVICES + CORRECT EVENTS)
  *
- * ✅ Services canonicalized to match chart SERVICE_COLORS:
+ * Services canonicalized to match chart SERVICE_COLORS:
  *    Emergency, Surgery, General_Medicine, ICU
  *
- * ✅ Events canonicalized to ONLY:
+ * Events canonicalized to ONLY:
  *    flu, strike, donation, none
  *
  * Why this matters:
@@ -37,7 +37,7 @@ function normalizeService(raw) {
 }
 
 /**
- * ✅ Normalize event values to ONLY:
+ * Normalize event values to ONLY:
  * donation | strike | flu | none
  *
  * - trims whitespace
@@ -66,20 +66,20 @@ function normalizeEvent(raw) {
  * MAIN EXPORT
  */
 export function processAllData(servicesWeeklyCSV, staffScheduleCSV, staffMasterCSV = []) {
-  console.log("🔄 Processing unified dataset...");
+  console.log("Processing unified dataset...");
 
   const staffPresenceData = _computeStaffPresenceMetrics(staffScheduleCSV, staffMasterCSV);
-  console.log("✅ Staff presence metrics computed");
+  console.log("Staff presence metrics computed");
 
   const serviceWeeklyData = _enrichServiceWeeklyData(servicesWeeklyCSV, staffPresenceData);
-  console.log("✅ Service weekly data enriched");
+  console.log("Service weekly data enriched");
 
   const finalData = _addStressScoresAndValidate(serviceWeeklyData);
-  console.log("✅ Final dataset ready:", finalData.length, "records");
+  console.log(" Final dataset ready:", finalData.length, "records");
 
   // sanity checks (safe to keep)
-  console.log("🔎 Unique services:", [...new Set(finalData.map(d => d.service))].sort());
-  console.log("🔎 Unique events:", [...new Set(finalData.map(d => d.event))].sort());
+  console.log("Unique services:", [...new Set(finalData.map(d => d.service))].sort());
+  console.log(" Unique events:", [...new Set(finalData.map(d => d.event))].sort());
 
   return finalData;
 }
@@ -175,7 +175,7 @@ function _enrichServiceWeeklyData(servicesWeeklyCSV, staffPresenceData) {
       month: +d.month || Math.ceil(week / 4.33),
       service,
 
-      // ✅ now only donation/strike/flu/none
+      // now only donation/strike/flu/none
       event: normalizeEvent(d.event),
 
       available_beds,

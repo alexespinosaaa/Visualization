@@ -308,7 +308,7 @@ export function update(container, data, state, dispatch) {
         const w2 = Math.max(1, Math.min(52, Math.round(newX.invert(x1))));
         _dispatch({ type: "SET_TIME_RANGE", value: [Math.min(w1, w2), Math.max(w1, w2)] });
 
-        // ✅ KEY FIX: clear brush rectangle so it never "sticks"
+        // KEY FIX: clear brush rectangle so it never "sticks"
         brushGroup.call(brush.move, null);
       });
 
@@ -330,7 +330,7 @@ export function update(container, data, state, dispatch) {
       .translateExtent([[0, 0], [width, height]])
       .extent([[0, 0], [width, height]])
       .filter((event) => {
-        // ✅ only zoom on wheel, no drag-pan, no dblclick zoom
+        // only zoom on wheel, no drag-pan, no dblclick zoom
         return event.type === "wheel";
       })
       .on("zoom", (event) => {
@@ -343,6 +343,6 @@ export function update(container, data, state, dispatch) {
     chartArea.select("rect.zoom-capture").call(zoom);
 
   } catch (err) {
-    console.error("❌ Error in view-timeseries update:", err);
+    console.error("Error in view-timeseries update:", err);
   }
 }
